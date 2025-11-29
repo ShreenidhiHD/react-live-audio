@@ -11,9 +11,9 @@ class AudioProcessor extends AudioWorkletProcessor {
 
     private readonly targetSampleRate = 16000;
     private readonly vadThreshold = 0.01; // Adjustable threshold
-    private readonly vadHangoverFrames = 10; // ~100-200ms depending on chunk size
     private vadHangoverCounter = 0;
     private isSpeaking = false;
+    private speakingFrames = 0;
 
     constructor() {
         super();
@@ -41,11 +41,13 @@ class AudioProcessor extends AudioWorkletProcessor {
         const isCurrentlySpeaking = this.detectVoice(resampledData);
 
         if (isCurrentlySpeaking) {
-            this.vadHangoverCounter = this.vadHangoverFrames;
             if (!this.isSpeaking) {
                 this.isSpeaking = true;
+                this.speakingFrames = 0;
                 this.port.postMessage({ type: 'VAD_START' });
             }
+            this.speakingFrames += 1;
+            this.vadHangoverCounter = this.calculateHangover(this.speakingFrames);
         } else {
             if (this.vadHangoverCounter > 0) {
                 this.vadHangoverCounter--;
@@ -103,10 +105,20 @@ class AudioProcessor extends AudioWorkletProcessor {
     private floatTo16BitPCM(input: Float32Array): Int16Array {
         const output = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i]));
+            // Soft-clip limiter
+            const s = Math.tanh(input[i]);
             output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
         return output;
+    }
+
+    private calculateHangover(speakingFrames: number): number {
+        // Assuming ~128 samples per chunk at 16kHz = 8ms
+        // 2 seconds = 250 chunks
+        if (speakingFrames > 250) {
+            return 187; // ~1.5s
+        }
+        return 62; // ~500ms
     }
 }
 

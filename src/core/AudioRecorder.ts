@@ -5,6 +5,7 @@ export interface AudioRecorderOptions {
     sampleRate?: number;
     onDataAvailable?: (data: Int16Array) => void;
     onVADChange?: (isSpeaking: boolean) => void;
+    onBargeIn?: () => void;
 }
 
 export class AudioRecorder {
@@ -13,6 +14,7 @@ export class AudioRecorder {
     private stream: MediaStream | null = null;
     private options: AudioRecorderOptions;
     private isRecording = false;
+    private analyser: AnalyserNode | null = null;
 
     constructor(options: AudioRecorderOptions) {
         this.options = options;
@@ -22,7 +24,13 @@ export class AudioRecorder {
         if (this.isRecording) return;
 
         try {
-            this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
 
             // Create AudioContext with desired sample rate if supported, otherwise default
             // Note: We resample in the worklet, so we can let the context run at native rate (usually 44.1 or 48k)
@@ -41,6 +49,11 @@ export class AudioRecorder {
             const source = this.context.createMediaStreamSource(this.stream);
             this.workletNode = new AudioWorkletNode(this.context, 'audio-processor');
 
+            // Visualizer Support
+            this.analyser = this.context.createAnalyser();
+            this.analyser.fftSize = 256;
+            source.connect(this.analyser);
+
             this.workletNode.port.onmessage = (event) => {
                 const { type, data } = event.data;
 
@@ -51,6 +64,9 @@ export class AudioRecorder {
                 } else if (type === 'VAD_START') {
                     if (this.options.onVADChange) {
                         this.options.onVADChange(true);
+                    }
+                    if (this.options.onBargeIn) {
+                        this.options.onBargeIn();
                     }
                 } else if (type === 'VAD_END') {
                     if (this.options.onVADChange) {
@@ -94,5 +110,12 @@ export class AudioRecorder {
     private getWorkletUrl(): string {
         const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
         return URL.createObjectURL(blob);
+    }
+
+    getFrequencies(): Float32Array {
+        if (!this.analyser) return new Float32Array(0);
+        const data = new Float32Array(this.analyser.frequencyBinCount);
+        this.analyser.getFloatFrequencyData(data);
+        return data;
     }
 }
