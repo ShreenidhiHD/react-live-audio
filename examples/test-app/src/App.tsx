@@ -262,11 +262,15 @@ function App() {
                 />
             </div>
 
-            {recordingBlob && (
+            {recordingBlob ? (
                 <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
                     <h3>Last Recording</h3>
                     <p>Size: {(recordingBlob.size / 1024).toFixed(2)} KB</p>
                     <audio ref={audioRef} controls style={{ width: '100%' }} />
+                </div>
+            ) : (
+                <div style={{ marginTop: '20px', padding: '15px', color: '#666' }}>
+                    {useOpus ? 'Opus mode: Blob disabled by default (streaming only).' : 'No recording available.'}
                 </div>
             )}
         </div>

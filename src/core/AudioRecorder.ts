@@ -19,12 +19,14 @@ export interface AudioRecorderOptions {
     vadModelUrl?: string;
     bufferSize?: number; // Size in samples (e.g., 4096)
     encoder?: 'pcm' | 'opus';
+    keepBlob?: boolean;
 }
 
 export class AudioRecorder {
     private context: AudioContext | null = null;
     private workletNode: AudioWorkletNode | null = null;
     private stream: MediaStream | null = null;
+    private source: MediaStreamAudioSourceNode | null = null;
     private options: AudioRecorderOptions;
     private isRecording = false;
     private isPaused = false;
@@ -116,7 +118,7 @@ export class AudioRecorder {
             const workletUrl = this.getWorkletUrl();
             await this.context.audioWorklet.addModule(workletUrl);
 
-            const source = this.context.createMediaStreamSource(this.stream);
+            this.source = this.context.createMediaStreamSource(this.stream);
             this.workletNode = new AudioWorkletNode(this.context, 'audio-processor');
 
             // Send initial config
@@ -127,10 +129,7 @@ export class AudioRecorder {
                 });
             }
 
-            // Visualizer Support
-            this.analyser = this.context.createAnalyser();
-            this.analyser.fftSize = 256;
-            source.connect(this.analyser);
+            // Visualizer Support - Lazy loaded in getFrequencies()
 
             this.workletNode.port.onmessage = async (event) => {
                 const { type, data } = event.data;
@@ -184,7 +183,7 @@ export class AudioRecorder {
                 }
             };
 
-            source.connect(this.workletNode);
+            this.source.connect(this.workletNode);
             // We don't connect to destination to avoid feedback loop (hearing yourself)
 
             this.isRecording = true;
@@ -248,6 +247,11 @@ export class AudioRecorder {
             this.workletNode = null;
         }
 
+        if (this.analyser) {
+            this.analyser.disconnect();
+            this.analyser = null;
+        }
+
         if (this.context) {
             this.context.close();
             this.context = null;
@@ -283,7 +287,22 @@ export class AudioRecorder {
     }
 
     getFrequencies(): Float32Array {
-        if (!this.analyser) return new Float32Array(0);
+        if (!this.context) return new Float32Array(0);
+
+        if (!this.analyser) {
+            // Lazy initialization
+            try {
+                if (!this.source) return new Float32Array(0);
+
+                this.analyser = this.context.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.source.connect(this.analyser);
+            } catch (e) {
+                console.error('Failed to create analyser', e);
+                return new Float32Array(0);
+            }
+        }
+
         const data = new Float32Array(this.analyser.frequencyBinCount);
         this.analyser.getFloatFrequencyData(data);
         return data;

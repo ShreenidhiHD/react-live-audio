@@ -1,4 +1,3 @@
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { AudioRecorder, AudioDataPayload } from '../core/AudioRecorder';
 
@@ -9,20 +8,21 @@ export interface UseAudioRecorderOptions {
     vadModelUrl?: string;
     bufferSize?: number;
     encoder?: 'pcm' | 'opus';
+    keepBlob?: boolean;
 }
 
-export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
+export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
     const [isRecording, setIsRecording] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
     const [recordingTime, setRecordingTime] = useState(0);
 
-    const recorderRef = useRef<AudioRecorder | null>(null);
     const chunksRef = useRef<(Int16Array | Uint8Array)[]>([]);
+    const recorderRef = useRef<AudioRecorder | null>(null);
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const startTimeRef = useRef<number>(0);
     const pausedTimeRef = useRef<number>(0);
-    const timerRef = useRef<any>(null);
 
     // We expose a method to set the socket or callback for data
     const start = useCallback(async (onData?: (payload: AudioDataPayload) => void) => {
@@ -33,6 +33,9 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
         setRecordingTime(0);
         pausedTimeRef.current = 0;
 
+        // Default keepBlob logic: true for PCM, false for Opus (unless explicitly set)
+        const shouldKeepBlob = options.keepBlob ?? (options.encoder !== 'opus');
+
         const recorder = new AudioRecorder({
             sampleRate: options.sampleRate,
             audioConstraints: options.audioConstraints,
@@ -40,8 +43,11 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             vadModelUrl: options.vadModelUrl,
             bufferSize: options.bufferSize,
             encoder: options.encoder,
+            keepBlob: shouldKeepBlob,
             onDataAvailable: (payload) => {
-                chunksRef.current.push(payload.data);
+                if (shouldKeepBlob) {
+                    chunksRef.current.push(payload.data);
+                }
                 if (onData) onData(payload);
             },
             onVADChange: (speaking) => {
@@ -71,28 +77,34 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
         if (recorderRef.current) {
             recorderRef.current.stop();
             recorderRef.current = null;
-            setIsRecording(false);
-            setIsPaused(false);
-            setIsSpeaking(false);
-
-            if (timerRef.current) {
-                clearInterval(timerRef.current);
-                timerRef.current = null;
-            }
-
-            let blob: Blob;
-            if (options.encoder === 'opus') {
-                // For Opus, chunks are Uint8Array packets. 
-                // We can just blob them together, but usually they need a container (Ogg/WebM).
-                // For simplicity in this raw lib, we just return the raw packets as a blob.
-                // A real app would use a container muxer.
-                blob = new Blob(chunksRef.current as any[], { type: 'audio/ogg' });
-            } else {
-                blob = AudioRecorder.exportWAV(chunksRef.current as Int16Array[], options.sampleRate);
-            }
-            setRecordingBlob(blob);
         }
-    }, [options.sampleRate, options.encoder]);
+
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+        }
+
+        setIsRecording(false);
+        setIsPaused(false);
+        setIsSpeaking(false);
+
+        // Create Blob if we kept chunks
+        if (chunksRef.current.length > 0) {
+            if (options.encoder === 'opus') {
+                // Raw Opus packets - user must handle container
+                const blob = new Blob(chunksRef.current as any[], { type: 'audio/opus' });
+                setRecordingBlob(blob);
+            } else {
+                // PCM - export WAV
+                // We need to cast because chunksRef can hold Uint8Array but exportWAV expects Int16Array
+                // In PCM mode, we know it's Int16Array
+                const blob = AudioRecorder.exportWAV(chunksRef.current as Int16Array[], options.sampleRate);
+                setRecordingBlob(blob);
+            }
+        } else {
+            setRecordingBlob(null);
+        }
+    }, [options.encoder, options.sampleRate]);
 
     const pause = useCallback(() => {
         if (recorderRef.current && isRecording && !isPaused) {

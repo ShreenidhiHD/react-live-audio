@@ -1,14 +1,30 @@
-# react-live-audio
+# React Live Audio 🎙️
 
-A robust React hook for real-time audio streaming with AudioWorklet, Voice Activity Detection (VAD), Resampling, and Visualization.
+**🔥 Real-Time Audio Engine for React**
+*(Streaming + VAD + PCM/Opus + Visualization)*
 
-## Features
+> **⚠️ Note:** This is an advanced audio engine, not just a simple recorder. It uses modern browser APIs (AudioWorklet, WebCodecs) which may have varying support across browsers (especially Safari/iOS).
 
-- 🎙️ **Real-time Audio Streaming**: Efficiently captures audio using AudioWorklet.
-- 🗣️ **Voice Activity Detection (VAD)**: Detects when the user is speaking with configurable sensitivity.
-- 🔄 **Resampling**: Automatically handles sample rate conversion (e.g., to 16kHz for AI models).
-- 💾 **Encoding & Playback**: Export recordings as WAV blobs for easy playback.
-- 📊 **Visualization**: Real-time frequency data hook for creating audio visualizers.
+A robust, headless React hook for real-time audio processing. Designed for Voice AI, streaming, and advanced audio applications.
+
+## 🌟 Features
+
+- **⚡ Low Latency**: Uses `AudioWorklet` for non-blocking audio processing.
+- **🧠 AI & Energy VAD**: Built-in energy detection + support for **Silero VAD** (ONNX).
+- **📦 Smart Buffering**: Control buffer size and metadata (sequence, timestamps).
+- **🎼 Multi-Format**: Raw **PCM** (Int16) or compressed **Opus** (WebCodecs).
+- **📊 Visualization**: Real-time frequency data hook.
+- **🔌 Streaming Ready**: WebSocket helper and chunk-based architecture.
+
+## 🥊 Why use this?
+
+| Feature | react-live-audio | Standard Recorders |
+| :--- | :--- | :--- |
+| **Focus** | Real-time Streaming / AI | Saving WAV files |
+| **Latency** | Ultra-low (Worklet) | High (MediaRecorder) |
+| **VAD** | Advanced (AI/Energy) | None / Basic |
+| **Encoding** | PCM / Opus (WebCodecs) | WAV / MP3 |
+| **Complexity** | High (Engine) | Low (Widget) |
 - 🎛️ **Advanced Config**: Control echo cancellation, noise suppression, and VAD threshold.
 - ⚛️ **React Hook**: Easy-to-use `useAudioRecorder` and `useAudioVisualizer` hooks.
 - 📦 **Lightweight**: Minimal dependencies.
