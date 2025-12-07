@@ -1,11 +1,55 @@
+interface AudioDataPayload {
+    data: Int16Array;
+    timestamp: number;
+    sequence: number;
+}
+interface AudioRecorderOptions {
+    sampleRate?: number;
+    onDataAvailable?: (payload: AudioDataPayload) => void;
+    onVADChange?: (isSpeaking: boolean) => void;
+    audioConstraints?: MediaTrackConstraints;
+    vadThreshold?: number;
+    vadModelUrl?: string;
+    bufferSize?: number;
+}
+declare class AudioRecorder {
+    private context;
+    private workletNode;
+    private stream;
+    private options;
+    private isRecording;
+    private isPaused;
+    private analyser;
+    private vadAdapter;
+    private buffer;
+    private sequenceNumber;
+    constructor(options: AudioRecorderOptions);
+    start(): Promise<void>;
+    private emitData;
+    stop(): void;
+    pause(): void;
+    resume(): void;
+    private getWorkletUrl;
+    getFrequencies(): Float32Array;
+    /**
+     * Converts an array of Int16Array chunks into a WAV Blob.
+     * @param chunks The audio data chunks (Int16Array)
+     * @param sampleRate The sample rate of the audio data (default 16000)
+     * @returns A Blob containing the WAV file
+     */
+    static exportWAV(chunks: Int16Array[], sampleRate?: number): Blob;
+    private static writeString;
+}
+
 interface UseAudioRecorderOptions {
     sampleRate?: number;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
     vadModelUrl?: string;
+    bufferSize?: number;
 }
 declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
-    start: (onData?: (data: Int16Array) => void) => Promise<void>;
+    start: (onData?: (payload: AudioDataPayload) => void) => Promise<void>;
     stop: () => void;
     pause: () => void;
     resume: () => void;
@@ -44,40 +88,6 @@ declare const useLiveAudio: ({ transport, sampleRate }: UseLiveAudioOptions) => 
     state: LiveAudioState;
     frequencyData: Float32Array<ArrayBufferLike>;
 };
-
-interface AudioRecorderOptions {
-    sampleRate?: number;
-    onDataAvailable?: (data: Int16Array) => void;
-    onVADChange?: (isSpeaking: boolean) => void;
-    audioConstraints?: MediaTrackConstraints;
-    vadThreshold?: number;
-    vadModelUrl?: string;
-}
-declare class AudioRecorder {
-    private context;
-    private workletNode;
-    private stream;
-    private options;
-    private isRecording;
-    private isPaused;
-    private analyser;
-    private vadAdapter;
-    constructor(options: AudioRecorderOptions);
-    start(): Promise<void>;
-    stop(): void;
-    pause(): void;
-    resume(): void;
-    private getWorkletUrl;
-    getFrequencies(): Float32Array;
-    /**
-     * Converts an array of Int16Array chunks into a WAV Blob.
-     * @param chunks The audio data chunks (Int16Array)
-     * @param sampleRate The sample rate of the audio data (default 16000)
-     * @returns A Blob containing the WAV file
-     */
-    static exportWAV(chunks: Int16Array[], sampleRate?: number): Blob;
-    private static writeString;
-}
 
 declare class AudioPlayer {
     private context;

@@ -99,6 +99,8 @@ const Visualizer = () => {
 |----------|------|---------|-------------|
 | `sampleRate` | `number` | `16000` | Target sample rate for output audio. |
 | `vadThreshold` | `number` | `0.01` | Sensitivity for Voice Activity Detection (0.0 to 1.0). |
+| `vadModelUrl` | `string` | `undefined` | URL to Silero VAD ONNX model for AI-based detection. |
+| `bufferSize` | `number` | `0` | Size of audio chunks in samples. 0 = immediate. |
 | `audioConstraints` | `MediaTrackConstraints` | `{ echoCancellation: true, ... }` | Constraints passed to `getUserMedia`. |
 
 #### Returns
@@ -115,6 +117,34 @@ const Visualizer = () => {
 | `recordingBlob` | `Blob \| null` | The recorded audio as a WAV blob (available after stop). |
 | `recordingTime` | `number` | Duration of the current recording in seconds. |
 | `getVisualizerData` | `() => Float32Array` | Function to get current frequency data. |
+
+### Advanced Usage
+
+#### AI-Powered VAD (Silero)
+
+To use the AI-based VAD instead of the default energy-based one, provide a URL to the Silero ONNX model.
+
+```tsx
+useAudioRecorder({
+  vadModelUrl: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx"
+});
+```
+
+#### Buffer Control & Metadata
+
+Control the size of the audio chunks and receive metadata (timestamp, sequence number).
+
+```tsx
+useAudioRecorder({
+  bufferSize: 4096, // e.g., 4096 samples per chunk
+});
+
+// The start callback now receives a payload object
+start((payload) => {
+  const { data, timestamp, sequence } = payload;
+  console.log(`Chunk #${sequence} at ${timestamp}: ${data.length} samples`);
+});
+```
 
 ### `useAudioVisualizer(getVisualizerData)`
 

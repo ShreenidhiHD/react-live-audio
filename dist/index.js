@@ -197,6 +197,9 @@ var AudioRecorder = class {
     __publicField(this, "isPaused", false);
     __publicField(this, "analyser", null);
     __publicField(this, "vadAdapter", null);
+    // Buffering state
+    __publicField(this, "buffer", new Int16Array(0));
+    __publicField(this, "sequenceNumber", 0);
     this.options = options;
     if (options.vadModelUrl) {
       this.vadAdapter = new SileroVADAdapter(options.vadModelUrl);
@@ -205,6 +208,8 @@ var AudioRecorder = class {
   async start() {
     if (this.isRecording) return;
     this.isPaused = false;
+    this.buffer = new Int16Array(0);
+    this.sequenceNumber = 0;
     try {
       if (this.vadAdapter) {
         await this.vadAdapter.load();
@@ -236,8 +241,18 @@ var AudioRecorder = class {
         if (type === "AUDIO_DATA") {
           if (!this.isPaused) {
             const int16Data = new Int16Array(data);
-            if (this.options.onDataAvailable) {
-              this.options.onDataAvailable(int16Data);
+            if (this.options.bufferSize && this.options.bufferSize > 0) {
+              const newBuffer = new Int16Array(this.buffer.length + int16Data.length);
+              newBuffer.set(this.buffer);
+              newBuffer.set(int16Data, this.buffer.length);
+              this.buffer = newBuffer;
+              while (this.buffer.length >= this.options.bufferSize) {
+                const chunk = this.buffer.slice(0, this.options.bufferSize);
+                this.buffer = this.buffer.slice(this.options.bufferSize);
+                this.emitData(chunk);
+              }
+            } else {
+              this.emitData(int16Data);
             }
             if (this.vadAdapter) {
               const float32Data = new Float32Array(int16Data.length);
@@ -265,6 +280,15 @@ var AudioRecorder = class {
     } catch (error) {
       console.error("Failed to start recording:", error);
       throw error;
+    }
+  }
+  emitData(data) {
+    if (this.options.onDataAvailable) {
+      this.options.onDataAvailable({
+        data,
+        timestamp: Date.now(),
+        sequence: this.sequenceNumber++
+      });
     }
   }
   stop() {
@@ -369,9 +393,10 @@ var useAudioRecorder = (options = {}) => {
       audioConstraints: options.audioConstraints,
       vadThreshold: options.vadThreshold,
       vadModelUrl: options.vadModelUrl,
-      onDataAvailable: (data) => {
-        chunksRef.current.push(data);
-        if (onData) onData(data);
+      bufferSize: options.bufferSize,
+      onDataAvailable: (payload) => {
+        chunksRef.current.push(payload.data);
+        if (onData) onData(payload);
       },
       onVADChange: (speaking) => {
         setIsSpeaking(speaking);

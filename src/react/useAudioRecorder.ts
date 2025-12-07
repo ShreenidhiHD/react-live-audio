@@ -1,12 +1,13 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { AudioRecorder } from '../core/AudioRecorder';
+import { AudioRecorder, AudioDataPayload } from '../core/AudioRecorder';
 
 export interface UseAudioRecorderOptions {
     sampleRate?: number;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
     vadModelUrl?: string;
+    bufferSize?: number;
 }
 
 export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
@@ -23,7 +24,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
     const timerRef = useRef<any>(null);
 
     // We expose a method to set the socket or callback for data
-    const start = useCallback(async (onData?: (data: Int16Array) => void) => {
+    const start = useCallback(async (onData?: (payload: AudioDataPayload) => void) => {
         if (recorderRef.current) return;
 
         chunksRef.current = [];
@@ -36,9 +37,10 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             audioConstraints: options.audioConstraints,
             vadThreshold: options.vadThreshold,
             vadModelUrl: options.vadModelUrl,
-            onDataAvailable: (data) => {
-                chunksRef.current.push(data);
-                if (onData) onData(data);
+            bufferSize: options.bufferSize,
+            onDataAvailable: (payload) => {
+                chunksRef.current.push(payload.data);
+                if (onData) onData(payload);
             },
             onVADChange: (speaking) => {
                 setIsSpeaking(speaking);

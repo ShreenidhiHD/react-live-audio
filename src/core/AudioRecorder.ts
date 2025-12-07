@@ -3,13 +3,20 @@ import { WORKLET_CODE } from '../worklet/AudioProcessorString';
 
 import { SileroVADAdapter } from './VADAdapter';
 
+export interface AudioDataPayload {
+    data: Int16Array;
+    timestamp: number;
+    sequence: number;
+}
+
 export interface AudioRecorderOptions {
     sampleRate?: number;
-    onDataAvailable?: (data: Int16Array) => void;
+    onDataAvailable?: (payload: AudioDataPayload) => void;
     onVADChange?: (isSpeaking: boolean) => void;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
     vadModelUrl?: string;
+    bufferSize?: number; // Size in samples (e.g., 4096)
 }
 
 export class AudioRecorder {
@@ -22,6 +29,10 @@ export class AudioRecorder {
     private analyser: AnalyserNode | null = null;
     private vadAdapter: SileroVADAdapter | null = null;
 
+    // Buffering state
+    private buffer: Int16Array = new Int16Array(0);
+    private sequenceNumber = 0;
+
     constructor(options: AudioRecorderOptions) {
         this.options = options;
         if (options.vadModelUrl) {
@@ -32,6 +43,8 @@ export class AudioRecorder {
     async start() {
         if (this.isRecording) return;
         this.isPaused = false;
+        this.buffer = new Int16Array(0);
+        this.sequenceNumber = 0;
 
         try {
             if (this.vadAdapter) {
@@ -83,8 +96,22 @@ export class AudioRecorder {
                     if (!this.isPaused) {
                         const int16Data = new Int16Array(data);
 
-                        if (this.options.onDataAvailable) {
-                            this.options.onDataAvailable(int16Data);
+                        // Handle Buffering
+                        if (this.options.bufferSize && this.options.bufferSize > 0) {
+                            const newBuffer = new Int16Array(this.buffer.length + int16Data.length);
+                            newBuffer.set(this.buffer);
+                            newBuffer.set(int16Data, this.buffer.length);
+                            this.buffer = newBuffer;
+
+                            while (this.buffer.length >= this.options.bufferSize) {
+                                const chunk = this.buffer.slice(0, this.options.bufferSize);
+                                this.buffer = this.buffer.slice(this.options.bufferSize);
+
+                                this.emitData(chunk);
+                            }
+                        } else {
+                            // No buffering, emit immediately
+                            this.emitData(int16Data);
                         }
 
                         // If we have an AI VAD adapter, use it
@@ -121,6 +148,16 @@ export class AudioRecorder {
         } catch (error) {
             console.error('Failed to start recording:', error);
             throw error;
+        }
+    }
+
+    private emitData(data: Int16Array) {
+        if (this.options.onDataAvailable) {
+            this.options.onDataAvailable({
+                data,
+                timestamp: Date.now(),
+                sequence: this.sequenceNumber++
+            });
         }
     }
 

@@ -6,6 +6,7 @@ function App() {
     const [noiseSuppression, setNoiseSuppression] = useState(true);
     const [vadThreshold, setVadThreshold] = useState(0.01);
     const [useAiVad, setUseAiVad] = useState(false);
+    const [bufferSize, setBufferSize] = useState(0);
 
     const {
         start,
@@ -25,7 +26,8 @@ function App() {
             noiseSuppression
         },
         vadThreshold,
-        vadModelUrl: useAiVad ? "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx" : undefined
+        vadModelUrl: useAiVad ? "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx" : undefined,
+        bufferSize
     });
 
     const frequencyData = useAudioVisualizer(getVisualizerData);
@@ -33,7 +35,10 @@ function App() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const handleStart = async () => {
-        await start();
+        await start((payload) => {
+            // Payload contains { data, timestamp, sequence }
+            // console.log(`Received chunk #${payload.sequence} at ${payload.timestamp}, size: ${payload.data.length}`);
+        });
     };
 
     const handleStop = () => {
@@ -114,7 +119,7 @@ function App() {
                     />
                     Use AI VAD (Silero)
                 </label>
-                <label style={{ display: 'block' }}>
+                <label style={{ display: 'block', marginBottom: '10px' }}>
                     VAD Threshold: {vadThreshold}
                     <input
                         type="range"
@@ -125,6 +130,20 @@ function App() {
                         onChange={(e) => setVadThreshold(parseFloat(e.target.value))}
                         style={{ width: '100%', display: 'block' }}
                     />
+                </label>
+                <label style={{ display: 'block' }}>
+                    Buffer Size (samples): {bufferSize}
+                    <select
+                        value={bufferSize}
+                        onChange={(e) => setBufferSize(parseInt(e.target.value))}
+                        disabled={isRecording}
+                        style={{ marginLeft: '10px' }}
+                    >
+                        <option value={0}>Default (Immediate)</option>
+                        <option value={2048}>2048 (~128ms)</option>
+                        <option value={4096}>4096 (~256ms)</option>
+                        <option value={16000}>16000 (1s)</option>
+                    </select>
                 </label>
             </div>
 
