@@ -1,11 +1,16 @@
 interface UseAudioRecorderOptions {
     sampleRate?: number;
+    audioConstraints?: MediaTrackConstraints;
+    vadThreshold?: number;
 }
 declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
     start: (onData?: (data: Int16Array) => void) => Promise<void>;
     stop: () => void;
     isRecording: boolean;
     isSpeaking: boolean;
+    recordingBlob: Blob | null;
+    recordingTime: number;
+    getVisualizerData: () => Float32Array<ArrayBufferLike>;
 };
 
 interface TransportAdapter {
@@ -40,7 +45,8 @@ interface AudioRecorderOptions {
     sampleRate?: number;
     onDataAvailable?: (data: Int16Array) => void;
     onVADChange?: (isSpeaking: boolean) => void;
-    onBargeIn?: () => void;
+    audioConstraints?: MediaTrackConstraints;
+    vadThreshold?: number;
 }
 declare class AudioRecorder {
     private context;
@@ -54,6 +60,14 @@ declare class AudioRecorder {
     stop(): void;
     private getWorkletUrl;
     getFrequencies(): Float32Array;
+    /**
+     * Converts an array of Int16Array chunks into a WAV Blob.
+     * @param chunks The audio data chunks (Int16Array)
+     * @param sampleRate The sample rate of the audio data (default 16000)
+     * @returns A Blob containing the WAV file
+     */
+    static exportWAV(chunks: Int16Array[], sampleRate?: number): Blob;
+    private static writeString;
 }
 
 declare class AudioPlayer {
@@ -84,4 +98,11 @@ declare class SileroVADAdapter implements VADAdapter {
     reset(): void;
 }
 
-export { AudioPlayer, AudioRecorder, type AudioRecorderOptions, BaseTransportAdapter, type LiveAudioState, SileroVADAdapter, type TransportAdapter, type UseAudioRecorderOptions, type UseLiveAudioOptions, type VADAdapter, useAudioRecorder, useLiveAudio };
+/**
+ * Hook to get real-time frequency data for visualization.
+ * @param getVisualizerData Function that returns the current frequency data (Float32Array).
+ * @returns The current frequency data as a Float32Array.
+ */
+declare const useAudioVisualizer: (getVisualizerData: () => Float32Array) => Float32Array<ArrayBufferLike>;
+
+export { AudioPlayer, AudioRecorder, type AudioRecorderOptions, BaseTransportAdapter, type LiveAudioState, SileroVADAdapter, type TransportAdapter, type UseAudioRecorderOptions, type UseLiveAudioOptions, type VADAdapter, useAudioRecorder, useAudioVisualizer, useLiveAudio };

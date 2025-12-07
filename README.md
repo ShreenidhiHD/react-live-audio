@@ -1,13 +1,16 @@
 # react-live-audio
 
-A robust React hook for real-time audio streaming with AudioWorklet, Voice Activity Detection (VAD), and Resampling.
+A robust React hook for real-time audio streaming with AudioWorklet, Voice Activity Detection (VAD), Resampling, and Visualization.
 
 ## Features
 
 - 🎙️ **Real-time Audio Streaming**: Efficiently captures audio using AudioWorklet.
-- 🗣️ **Voice Activity Detection (VAD)**: Detects when the user is speaking.
+- 🗣️ **Voice Activity Detection (VAD)**: Detects when the user is speaking with configurable sensitivity.
 - 🔄 **Resampling**: Automatically handles sample rate conversion (e.g., to 16kHz for AI models).
-- ⚛️ **React Hook**: Easy-to-use `useAudioRecorder` hook.
+- 💾 **Encoding & Playback**: Export recordings as WAV blobs for easy playback.
+- 📊 **Visualization**: Real-time frequency data hook for creating audio visualizers.
+- 🎛️ **Advanced Config**: Control echo cancellation, noise suppression, and VAD threshold.
+- ⚛️ **React Hook**: Easy-to-use `useAudioRecorder` and `useAudioVisualizer` hooks.
 - 📦 **Lightweight**: Minimal dependencies.
 
 ## Installation
@@ -22,42 +25,68 @@ pnpm add react-live-audio
 
 ## Usage
 
-Here is a simple example of how to use the `useAudioRecorder` hook in your React application.
+### Basic Recording
 
 ```tsx
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useAudioRecorder } from 'react-live-audio';
 
 const AudioApp = () => {
-  const { start, stop, isRecording, isSpeaking } = useAudioRecorder({
-    sampleRate: 16000, // Default is 16kHz, suitable for most AI models like OpenAI/Gemini
+  const { start, stop, isRecording, isSpeaking, recordingBlob } = useAudioRecorder({
+    sampleRate: 16000, // Default is 16kHz
   });
 
   const handleStart = async () => {
     await start((data) => {
       // data is an Int16Array of audio samples
-      console.log("Received audio chunk:", data.length);
-      // You can send this data to your backend or WebSocket here
+      // Send to WebSocket or process here
     });
   };
 
   return (
     <div>
-      <h1>Live Audio Recorder</h1>
       <p>Status: {isRecording ? 'Recording' : 'Idle'}</p>
       <p>VAD: {isSpeaking ? '🗣️ Speaking' : '🤫 Silent'}</p>
       
-      <button onClick={handleStart} disabled={isRecording}>
-        Start Recording
-      </button>
-      <button onClick={stop} disabled={!isRecording}>
-        Stop Recording
-      </button>
+      <button onClick={handleStart} disabled={isRecording}>Start</button>
+      <button onClick={stop} disabled={!isRecording}>Stop</button>
+      
+      {recordingBlob && (
+        <audio controls src={URL.createObjectURL(recordingBlob)} />
+      )}
     </div>
   );
 };
+```
 
-export default AudioApp;
+### Visualization
+
+```tsx
+import React, { useRef, useEffect } from 'react';
+import { useAudioRecorder, useAudioVisualizer } from 'react-live-audio';
+
+const Visualizer = () => {
+  const { start, stop, getVisualizerData } = useAudioRecorder();
+  const frequencyData = useAudioVisualizer(getVisualizerData);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Draw your visualization using frequencyData (Float32Array)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // ... drawing logic ...
+  }, [frequencyData]);
+
+  return (
+    <div>
+      <button onClick={() => start()}>Start</button>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+};
 ```
 
 ## API Reference
@@ -68,14 +97,30 @@ export default AudioApp;
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `sampleRate` | `number` | `undefined` | The desired sample rate for the output audio (e.g., 16000). If not provided, it uses the system's default sample rate, but the internal worklet usually defaults to 16kHz if configured. |
+| `sampleRate` | `number` | `16000` | Target sample rate for output audio. |
+| `vadThreshold` | `number` | `0.01` | Sensitivity for Voice Activity Detection (0.0 to 1.0). |
+| `audioConstraints` | `MediaTrackConstraints` | `{ echoCancellation: true, ... }` | Constraints passed to `getUserMedia`. |
 
 #### Returns
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `start` | `(onData?: (data: Int16Array) => void) => Promise<void>` | Starts the recording. Accepts an optional callback that receives audio chunks as `Int16Array`. |
-| `stop` | `() => void` | Stops the recording and releases resources. |
-| `isRecording` | `boolean` | `true` if currently recording, `false` otherwise. |
-| `isSpeaking` | `boolean` | `true` if voice activity is detected, `false` otherwise. |
+| `start` | `(onData?) => Promise<void>` | Starts recording. Optional callback receives `Int16Array` chunks. |
+| `stop` | `() => void` | Stops recording and finalizes the blob. |
+| `isRecording` | `boolean` | Current recording state. |
+| `isSpeaking` | `boolean` | Current VAD state. |
+| `recordingBlob` | `Blob \| null` | The recorded audio as a WAV blob (available after stop). |
+| `recordingTime` | `number` | Duration of the current recording in seconds. |
+| `getVisualizerData` | `() => Float32Array` | Function to get current frequency data. |
 
+### `useAudioVisualizer(getVisualizerData)`
+
+Hook that drives an animation loop to fetch frequency data.
+
+#### Arguments
+
+- `getVisualizerData`: The function returned from `useAudioRecorder`.
+
+#### Returns
+
+- `Float32Array`: Real-time frequency data for visualization.

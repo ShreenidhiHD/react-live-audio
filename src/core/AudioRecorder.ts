@@ -5,7 +5,8 @@ export interface AudioRecorderOptions {
     sampleRate?: number;
     onDataAvailable?: (data: Int16Array) => void;
     onVADChange?: (isSpeaking: boolean) => void;
-    onBargeIn?: () => void;
+    audioConstraints?: MediaTrackConstraints;
+    vadThreshold?: number;
 }
 
 export class AudioRecorder {
@@ -25,7 +26,7 @@ export class AudioRecorder {
 
         try {
             this.stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
+                audio: this.options.audioConstraints ?? {
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true
@@ -49,6 +50,14 @@ export class AudioRecorder {
             const source = this.context.createMediaStreamSource(this.stream);
             this.workletNode = new AudioWorkletNode(this.context, 'audio-processor');
 
+            // Send initial config
+            if (this.options.vadThreshold !== undefined) {
+                this.workletNode.port.postMessage({
+                    type: 'CONFIG',
+                    vadThreshold: this.options.vadThreshold
+                });
+            }
+
             // Visualizer Support
             this.analyser = this.context.createAnalyser();
             this.analyser.fftSize = 256;
@@ -64,9 +73,6 @@ export class AudioRecorder {
                 } else if (type === 'VAD_START') {
                     if (this.options.onVADChange) {
                         this.options.onVADChange(true);
-                    }
-                    if (this.options.onBargeIn) {
-                        this.options.onBargeIn();
                     }
                 } else if (type === 'VAD_END') {
                     if (this.options.onVADChange) {
@@ -117,5 +123,53 @@ export class AudioRecorder {
         const data = new Float32Array(this.analyser.frequencyBinCount);
         this.analyser.getFloatFrequencyData(data);
         return data;
+    }
+
+    /**
+     * Converts an array of Int16Array chunks into a WAV Blob.
+     * @param chunks The audio data chunks (Int16Array)
+     * @param sampleRate The sample rate of the audio data (default 16000)
+     * @returns A Blob containing the WAV file
+     */
+    static exportWAV(chunks: Int16Array[], sampleRate: number = 16000): Blob {
+        const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+        const buffer = new ArrayBuffer(44 + totalLength * 2);
+        const view = new DataView(buffer);
+
+        // RIFF chunk descriptor
+        this.writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + totalLength * 2, true);
+        this.writeString(view, 8, 'WAVE');
+
+        // fmt sub-chunk
+        this.writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+        view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+        view.setUint16(22, 1, true); // NumChannels (1 for Mono)
+        view.setUint32(24, sampleRate, true); // SampleRate
+        view.setUint32(28, sampleRate * 2, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+        view.setUint16(32, 2, true); // BlockAlign (NumChannels * BitsPerSample/8)
+        view.setUint16(34, 16, true); // BitsPerSample
+
+        // data sub-chunk
+        this.writeString(view, 36, 'data');
+        view.setUint32(40, totalLength * 2, true);
+
+        // Write PCM samples
+        let offset = 44;
+        for (const chunk of chunks) {
+            for (let i = 0; i < chunk.length; i++) {
+                view.setInt16(offset, chunk[i], true);
+                offset += 2;
+            }
+        }
+
+        return new Blob([view], { type: 'audio/wav' });
+    }
+
+    private static writeString(view: DataView, offset: number, string: string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
     }
 }

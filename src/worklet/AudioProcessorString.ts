@@ -16,7 +16,9 @@ class AudioProcessor extends AudioWorkletProcessor {
     
     this.port.onmessage = (event) => {
       if (event.data.type === 'CONFIG') {
-        // Handle config
+        if (event.data.vadThreshold !== undefined) {
+          this.vadThreshold = event.data.vadThreshold;
+        }
       }
     };
   }

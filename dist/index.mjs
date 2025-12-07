@@ -19,7 +19,9 @@ class AudioProcessor extends AudioWorkletProcessor {
     
     this.port.onmessage = (event) => {
       if (event.data.type === 'CONFIG') {
-        // Handle config
+        if (event.data.vadThreshold !== undefined) {
+          this.vadThreshold = event.data.vadThreshold;
+        }
       }
     };
   }
@@ -129,7 +131,7 @@ var AudioRecorder = class {
     if (this.isRecording) return;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
+        audio: this.options.audioConstraints ?? {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
@@ -141,6 +143,12 @@ var AudioRecorder = class {
       await this.context.audioWorklet.addModule(workletUrl);
       const source = this.context.createMediaStreamSource(this.stream);
       this.workletNode = new AudioWorkletNode(this.context, "audio-processor");
+      if (this.options.vadThreshold !== void 0) {
+        this.workletNode.port.postMessage({
+          type: "CONFIG",
+          vadThreshold: this.options.vadThreshold
+        });
+      }
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 256;
       source.connect(this.analyser);
@@ -153,9 +161,6 @@ var AudioRecorder = class {
         } else if (type === "VAD_START") {
           if (this.options.onVADChange) {
             this.options.onVADChange(true);
-          }
-          if (this.options.onBargeIn) {
-            this.options.onBargeIn();
           }
         } else if (type === "VAD_END") {
           if (this.options.onVADChange) {
@@ -197,18 +202,66 @@ var AudioRecorder = class {
     this.analyser.getFloatFrequencyData(data);
     return data;
   }
+  /**
+   * Converts an array of Int16Array chunks into a WAV Blob.
+   * @param chunks The audio data chunks (Int16Array)
+   * @param sampleRate The sample rate of the audio data (default 16000)
+   * @returns A Blob containing the WAV file
+   */
+  static exportWAV(chunks, sampleRate = 16e3) {
+    const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+    const buffer = new ArrayBuffer(44 + totalLength * 2);
+    const view = new DataView(buffer);
+    this.writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + totalLength * 2, true);
+    this.writeString(view, 8, "WAVE");
+    this.writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    this.writeString(view, 36, "data");
+    view.setUint32(40, totalLength * 2, true);
+    let offset = 44;
+    for (const chunk of chunks) {
+      for (let i = 0; i < chunk.length; i++) {
+        view.setInt16(offset, chunk[i], true);
+        offset += 2;
+      }
+    }
+    return new Blob([view], { type: "audio/wav" });
+  }
+  static writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
 };
 
 // src/react/useAudioRecorder.ts
 var useAudioRecorder = (options = {}) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [recordingBlob, setRecordingBlob] = useState(null);
+  const [recordingTime, setRecordingTime] = useState(0);
   const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const startTimeRef = useRef(0);
+  const timerRef = useRef(null);
   const start = useCallback(async (onData) => {
     if (recorderRef.current) return;
+    chunksRef.current = [];
+    setRecordingBlob(null);
+    setRecordingTime(0);
     const recorder = new AudioRecorder({
       sampleRate: options.sampleRate,
+      audioConstraints: options.audioConstraints,
+      vadThreshold: options.vadThreshold,
       onDataAvailable: (data) => {
+        chunksRef.current.push(data);
         if (onData) onData(data);
       },
       onVADChange: (speaking) => {
@@ -219,30 +272,52 @@ var useAudioRecorder = (options = {}) => {
       await recorder.start();
       recorderRef.current = recorder;
       setIsRecording(true);
+      startTimeRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1e3));
+      }, 1e3);
     } catch (err) {
       console.error("Error starting recorder:", err);
     }
-  }, [options.sampleRate]);
+  }, [options.sampleRate, options.audioConstraints]);
   const stop = useCallback(() => {
     if (recorderRef.current) {
       recorderRef.current.stop();
       recorderRef.current = null;
       setIsRecording(false);
       setIsSpeaking(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      const blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
+      setRecordingBlob(blob);
     }
-  }, []);
+  }, [options.sampleRate]);
   useEffect(() => {
     return () => {
       if (recorderRef.current) {
         recorderRef.current.stop();
       }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
     };
+  }, []);
+  const getVisualizerData = useCallback(() => {
+    if (recorderRef.current) {
+      return recorderRef.current.getFrequencies();
+    }
+    return new Float32Array(0);
   }, []);
   return {
     start,
     stop,
     isRecording,
-    isSpeaking
+    isSpeaking,
+    recordingBlob,
+    recordingTime,
+    getVisualizerData
   };
 };
 
@@ -349,8 +424,6 @@ var useLiveAudio = ({ transport, sampleRate = 24e3 }) => {
           } else {
             setState("thinking");
           }
-        },
-        onBargeIn: () => {
         }
       });
       recorderRef.current = recorder;
@@ -477,7 +550,25 @@ var SileroVADAdapter = class {
     this.c = new ort.Tensor("float32", zeros, [2, 1, 64]);
   }
 };
+var useAudioVisualizer = (getVisualizerData) => {
+  const [data, setData] = useState(new Float32Array(0));
+  const animationFrameRef = useRef(null);
+  useEffect(() => {
+    const loop = () => {
+      const newData = getVisualizerData();
+      setData(newData);
+      animationFrameRef.current = requestAnimationFrame(loop);
+    };
+    loop();
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [getVisualizerData]);
+  return data;
+};
 
-export { AudioPlayer, AudioRecorder, BaseTransportAdapter, SileroVADAdapter, useAudioRecorder, useLiveAudio };
+export { AudioPlayer, AudioRecorder, BaseTransportAdapter, SileroVADAdapter, useAudioRecorder, useAudioVisualizer, useLiveAudio };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

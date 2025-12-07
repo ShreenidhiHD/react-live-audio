@@ -48,9 +48,6 @@ export const useLiveAudio = ({ transport, sampleRate = 24000 }: UseLiveAudioOpti
                     } else {
                         setState('thinking');
                     }
-                },
-                onBargeIn: () => {
-                    // Redundant if onVADChange handles it, but safe
                 }
             });
             recorderRef.current = recorder;

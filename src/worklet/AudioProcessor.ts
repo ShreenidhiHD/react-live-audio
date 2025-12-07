@@ -10,7 +10,7 @@ declare function registerProcessor(name: string, processorCtor: any): void;
 class AudioProcessor extends AudioWorkletProcessor {
 
     private readonly targetSampleRate = 16000;
-    private readonly vadThreshold = 0.01; // Adjustable threshold
+    private vadThreshold = 0.01; // Adjustable threshold
     private vadHangoverCounter = 0;
     private isSpeaking = false;
     private speakingFrames = 0;
@@ -19,7 +19,9 @@ class AudioProcessor extends AudioWorkletProcessor {
         super();
         this.port.onmessage = (event) => {
             if (event.data.type === 'CONFIG') {
-                // Handle configuration updates if needed
+                if (event.data.vadThreshold !== undefined) {
+                    this.vadThreshold = event.data.vadThreshold;
+                }
             }
         };
     }
