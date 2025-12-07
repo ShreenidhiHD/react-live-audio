@@ -15,6 +15,7 @@ export class AudioRecorder {
     private stream: MediaStream | null = null;
     private options: AudioRecorderOptions;
     private isRecording = false;
+    private isPaused = false;
     private analyser: AnalyserNode | null = null;
 
     constructor(options: AudioRecorderOptions) {
@@ -23,6 +24,7 @@ export class AudioRecorder {
 
     async start() {
         if (this.isRecording) return;
+        this.isPaused = false;
 
         try {
             this.stream = await navigator.mediaDevices.getUserMedia({
@@ -67,7 +69,7 @@ export class AudioRecorder {
                 const { type, data } = event.data;
 
                 if (type === 'AUDIO_DATA') {
-                    if (this.options.onDataAvailable) {
+                    if (!this.isPaused && this.options.onDataAvailable) {
                         this.options.onDataAvailable(new Int16Array(data));
                     }
                 } else if (type === 'VAD_START') {
@@ -110,6 +112,21 @@ export class AudioRecorder {
         }
 
         this.isRecording = false;
+        this.isPaused = false;
+    }
+
+    pause() {
+        if (this.isRecording) {
+            this.isPaused = true;
+            this.context?.suspend();
+        }
+    }
+
+    resume() {
+        if (this.isRecording && this.isPaused) {
+            this.isPaused = false;
+            this.context?.resume();
+        }
     }
 
     // This is the magic part where we will inject the worker code

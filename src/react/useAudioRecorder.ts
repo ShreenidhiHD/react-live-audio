@@ -10,6 +10,7 @@ export interface UseAudioRecorderOptions {
 
 export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
     const [isRecording, setIsRecording] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
     const [recordingTime, setRecordingTime] = useState(0);
@@ -17,6 +18,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
     const recorderRef = useRef<AudioRecorder | null>(null);
     const chunksRef = useRef<Int16Array[]>([]);
     const startTimeRef = useRef<number>(0);
+    const pausedTimeRef = useRef<number>(0);
     const timerRef = useRef<any>(null);
 
     // We expose a method to set the socket or callback for data
@@ -26,6 +28,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
         chunksRef.current = [];
         setRecordingBlob(null);
         setRecordingTime(0);
+        pausedTimeRef.current = 0;
 
         const recorder = new AudioRecorder({
             sampleRate: options.sampleRate,
@@ -44,22 +47,26 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             await recorder.start();
             recorderRef.current = recorder;
             setIsRecording(true);
+            setIsPaused(false);
             startTimeRef.current = Date.now();
 
             timerRef.current = setInterval(() => {
-                setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+                if (!pausedTimeRef.current) {
+                    setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+                }
             }, 1000);
 
         } catch (err) {
             console.error("Error starting recorder:", err);
         }
-    }, [options.sampleRate, options.audioConstraints]);
+    }, [options.sampleRate, options.audioConstraints, options.vadThreshold]);
 
     const stop = useCallback(() => {
         if (recorderRef.current) {
             recorderRef.current.stop();
             recorderRef.current = null;
             setIsRecording(false);
+            setIsPaused(false);
             setIsSpeaking(false);
 
             if (timerRef.current) {
@@ -71,6 +78,34 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             setRecordingBlob(blob);
         }
     }, [options.sampleRate]);
+
+    const pause = useCallback(() => {
+        if (recorderRef.current && isRecording && !isPaused) {
+            recorderRef.current.pause();
+            setIsPaused(true);
+            if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+            }
+            // Store the duration so far
+            pausedTimeRef.current = Date.now() - startTimeRef.current;
+        }
+    }, [isRecording, isPaused]);
+
+    const resume = useCallback(() => {
+        if (recorderRef.current && isRecording && isPaused) {
+            recorderRef.current.resume();
+            setIsPaused(false);
+
+            // Adjust start time so the elapsed time continues correctly
+            startTimeRef.current = Date.now() - pausedTimeRef.current;
+            pausedTimeRef.current = 0;
+
+            timerRef.current = setInterval(() => {
+                setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+            }, 1000);
+        }
+    }, [isRecording, isPaused]);
 
     useEffect(() => {
         return () => {
@@ -93,7 +128,10 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
     return {
         start,
         stop,
+        pause,
+        resume,
         isRecording,
+        isPaused,
         isSpeaking,
         recordingBlob,
         recordingTime,

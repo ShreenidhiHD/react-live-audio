@@ -146,11 +146,13 @@ var AudioRecorder = class {
     __publicField(this, "stream", null);
     __publicField(this, "options");
     __publicField(this, "isRecording", false);
+    __publicField(this, "isPaused", false);
     __publicField(this, "analyser", null);
     this.options = options;
   }
   async start() {
     if (this.isRecording) return;
+    this.isPaused = false;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: this.options.audioConstraints ?? {
@@ -177,7 +179,7 @@ var AudioRecorder = class {
       this.workletNode.port.onmessage = (event) => {
         const { type, data } = event.data;
         if (type === "AUDIO_DATA") {
-          if (this.options.onDataAvailable) {
+          if (!this.isPaused && this.options.onDataAvailable) {
             this.options.onDataAvailable(new Int16Array(data));
           }
         } else if (type === "VAD_START") {
@@ -212,6 +214,19 @@ var AudioRecorder = class {
       this.context = null;
     }
     this.isRecording = false;
+    this.isPaused = false;
+  }
+  pause() {
+    if (this.isRecording) {
+      this.isPaused = true;
+      this.context?.suspend();
+    }
+  }
+  resume() {
+    if (this.isRecording && this.isPaused) {
+      this.isPaused = false;
+      this.context?.resume();
+    }
   }
   // This is the magic part where we will inject the worker code
   getWorkletUrl() {
@@ -266,18 +281,21 @@ var AudioRecorder = class {
 // src/react/useAudioRecorder.ts
 var useAudioRecorder = (options = {}) => {
   const [isRecording, setIsRecording] = react.useState(false);
+  const [isPaused, setIsPaused] = react.useState(false);
   const [isSpeaking, setIsSpeaking] = react.useState(false);
   const [recordingBlob, setRecordingBlob] = react.useState(null);
   const [recordingTime, setRecordingTime] = react.useState(0);
   const recorderRef = react.useRef(null);
   const chunksRef = react.useRef([]);
   const startTimeRef = react.useRef(0);
+  const pausedTimeRef = react.useRef(0);
   const timerRef = react.useRef(null);
   const start = react.useCallback(async (onData) => {
     if (recorderRef.current) return;
     chunksRef.current = [];
     setRecordingBlob(null);
     setRecordingTime(0);
+    pausedTimeRef.current = 0;
     const recorder = new AudioRecorder({
       sampleRate: options.sampleRate,
       audioConstraints: options.audioConstraints,
@@ -294,19 +312,23 @@ var useAudioRecorder = (options = {}) => {
       await recorder.start();
       recorderRef.current = recorder;
       setIsRecording(true);
+      setIsPaused(false);
       startTimeRef.current = Date.now();
       timerRef.current = setInterval(() => {
-        setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1e3));
+        if (!pausedTimeRef.current) {
+          setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1e3));
+        }
       }, 1e3);
     } catch (err) {
       console.error("Error starting recorder:", err);
     }
-  }, [options.sampleRate, options.audioConstraints]);
+  }, [options.sampleRate, options.audioConstraints, options.vadThreshold]);
   const stop = react.useCallback(() => {
     if (recorderRef.current) {
       recorderRef.current.stop();
       recorderRef.current = null;
       setIsRecording(false);
+      setIsPaused(false);
       setIsSpeaking(false);
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -316,6 +338,28 @@ var useAudioRecorder = (options = {}) => {
       setRecordingBlob(blob);
     }
   }, [options.sampleRate]);
+  const pause = react.useCallback(() => {
+    if (recorderRef.current && isRecording && !isPaused) {
+      recorderRef.current.pause();
+      setIsPaused(true);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      pausedTimeRef.current = Date.now() - startTimeRef.current;
+    }
+  }, [isRecording, isPaused]);
+  const resume = react.useCallback(() => {
+    if (recorderRef.current && isRecording && isPaused) {
+      recorderRef.current.resume();
+      setIsPaused(false);
+      startTimeRef.current = Date.now() - pausedTimeRef.current;
+      pausedTimeRef.current = 0;
+      timerRef.current = setInterval(() => {
+        setRecordingTime(Math.floor((Date.now() - startTimeRef.current) / 1e3));
+      }, 1e3);
+    }
+  }, [isRecording, isPaused]);
   react.useEffect(() => {
     return () => {
       if (recorderRef.current) {
@@ -335,7 +379,10 @@ var useAudioRecorder = (options = {}) => {
   return {
     start,
     stop,
+    pause,
+    resume,
     isRecording,
+    isPaused,
     isSpeaking,
     recordingBlob,
     recordingTime,

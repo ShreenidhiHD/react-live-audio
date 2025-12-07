@@ -6,7 +6,10 @@ interface UseAudioRecorderOptions {
 declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
     start: (onData?: (data: Int16Array) => void) => Promise<void>;
     stop: () => void;
+    pause: () => void;
+    resume: () => void;
     isRecording: boolean;
+    isPaused: boolean;
     isSpeaking: boolean;
     recordingBlob: Blob | null;
     recordingTime: number;
@@ -54,10 +57,13 @@ declare class AudioRecorder {
     private stream;
     private options;
     private isRecording;
+    private isPaused;
     private analyser;
     constructor(options: AudioRecorderOptions);
     start(): Promise<void>;
     stop(): void;
+    pause(): void;
+    resume(): void;
     private getWorkletUrl;
     getFrequencies(): Float32Array;
     /**

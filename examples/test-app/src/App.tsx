@@ -9,7 +9,10 @@ function App() {
     const {
         start,
         stop,
+        pause,
+        resume,
         isRecording,
+        isPaused,
         isSpeaking,
         recordingBlob,
         recordingTime,
@@ -33,6 +36,14 @@ function App() {
 
     const handleStop = () => {
         stop();
+    };
+
+    const handlePause = () => {
+        pause();
+    };
+
+    const handleResume = () => {
+        resume();
     };
 
     useEffect(() => {
@@ -120,13 +131,14 @@ function App() {
                         cursor: isRecording ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    Start Recording
+                    Start
                 </button>
                 <button
                     onClick={handleStop}
                     disabled={!isRecording}
                     style={{
                         padding: '10px 20px',
+                        marginRight: '10px',
                         backgroundColor: !isRecording ? '#ccc' : '#dc3545',
                         color: 'white',
                         border: 'none',
@@ -134,13 +146,47 @@ function App() {
                         cursor: !isRecording ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    Stop Recording
+                    Stop
                 </button>
+
+                {isRecording && !isPaused && (
+                    <button
+                        onClick={handlePause}
+                        style={{
+                            padding: '10px 20px',
+                            marginRight: '10px',
+                            backgroundColor: '#ffc107',
+                            color: 'black',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Pause
+                    </button>
+                )}
+
+                {isRecording && isPaused && (
+                    <button
+                        onClick={handleResume}
+                        style={{
+                            padding: '10px 20px',
+                            marginRight: '10px',
+                            backgroundColor: '#28a745',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Resume
+                    </button>
+                )}
             </div>
 
             <div style={{ marginBottom: '20px', fontSize: '1.2em' }}>
                 <div style={{ marginBottom: '10px' }}>
-                    <strong>Status:</strong> {isRecording ? '🔴 Recording' : 'Idle'}
+                    <strong>Status:</strong> {isRecording ? (isPaused ? '⏸️ Paused' : '🔴 Recording') : 'Idle'}
                 </div>
                 <div style={{ marginBottom: '10px' }}>
                     <strong>Time:</strong> {recordingTime}s

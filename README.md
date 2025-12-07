@@ -107,7 +107,10 @@ const Visualizer = () => {
 |----------|------|-------------|
 | `start` | `(onData?) => Promise<void>` | Starts recording. Optional callback receives `Int16Array` chunks. |
 | `stop` | `() => void` | Stops recording and finalizes the blob. |
+| `pause` | `() => void` | Pauses the recording. |
+| `resume` | `() => void` | Resumes the recording. |
 | `isRecording` | `boolean` | Current recording state. |
+| `isPaused` | `boolean` | Current paused state. |
 | `isSpeaking` | `boolean` | Current VAD state. |
 | `recordingBlob` | `Blob \| null` | The recorded audio as a WAV blob (available after stop). |
 | `recordingTime` | `number` | Duration of the current recording in seconds. |
