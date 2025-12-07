@@ -8,6 +8,7 @@ export interface UseAudioRecorderOptions {
     vadThreshold?: number;
     vadModelUrl?: string;
     bufferSize?: number;
+    encoder?: 'pcm' | 'opus';
 }
 
 export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
@@ -18,7 +19,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
     const [recordingTime, setRecordingTime] = useState(0);
 
     const recorderRef = useRef<AudioRecorder | null>(null);
-    const chunksRef = useRef<Int16Array[]>([]);
+    const chunksRef = useRef<(Int16Array | Uint8Array)[]>([]);
     const startTimeRef = useRef<number>(0);
     const pausedTimeRef = useRef<number>(0);
     const timerRef = useRef<any>(null);
@@ -38,6 +39,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             vadThreshold: options.vadThreshold,
             vadModelUrl: options.vadModelUrl,
             bufferSize: options.bufferSize,
+            encoder: options.encoder,
             onDataAvailable: (payload) => {
                 chunksRef.current.push(payload.data);
                 if (onData) onData(payload);
@@ -78,10 +80,19 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
                 timerRef.current = null;
             }
 
-            const blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
+            let blob: Blob;
+            if (options.encoder === 'opus') {
+                // For Opus, chunks are Uint8Array packets. 
+                // We can just blob them together, but usually they need a container (Ogg/WebM).
+                // For simplicity in this raw lib, we just return the raw packets as a blob.
+                // A real app would use a container muxer.
+                blob = new Blob(chunksRef.current as any[], { type: 'audio/ogg' });
+            } else {
+                blob = AudioRecorder.exportWAV(chunksRef.current as Int16Array[], options.sampleRate);
+            }
             setRecordingBlob(blob);
         }
-    }, [options.sampleRate]);
+    }, [options.sampleRate, options.encoder]);
 
     const pause = useCallback(() => {
         if (recorderRef.current && isRecording && !isPaused) {

@@ -166,6 +166,7 @@ var SileroVADAdapter = class {
 
 // src/core/AudioRecorder.ts
 var AudioRecorder = class {
+  // Type 'AudioEncoder' is not available in all TS envs yet
   constructor(options) {
     __publicField(this, "context", null);
     __publicField(this, "workletNode", null);
@@ -178,6 +179,8 @@ var AudioRecorder = class {
     // Buffering state
     __publicField(this, "buffer", new Int16Array(0));
     __publicField(this, "sequenceNumber", 0);
+    // Encoder state
+    __publicField(this, "audioEncoder", null);
     this.options = options;
     if (options.vadModelUrl) {
       this.vadAdapter = new SileroVADAdapter(options.vadModelUrl);
@@ -191,6 +194,30 @@ var AudioRecorder = class {
     try {
       if (this.vadAdapter) {
         await this.vadAdapter.load();
+      }
+      if (this.options.encoder === "opus") {
+        if (typeof window.AudioEncoder === "undefined") {
+          console.error("AudioEncoder is not supported in this browser. Falling back to PCM.");
+          this.options.encoder = "pcm";
+        } else {
+          this.audioEncoder = new window.AudioEncoder({
+            output: (chunk) => {
+              const buffer = new Uint8Array(chunk.byteLength);
+              chunk.copyTo(buffer);
+              this.emitData(buffer, "opus");
+            },
+            error: (e) => {
+              console.error("AudioEncoder error", e);
+            }
+          });
+          this.audioEncoder.configure({
+            codec: "opus",
+            sampleRate: this.options.sampleRate || 16e3,
+            numberOfChannels: 1,
+            bitrate: 24e3
+            // 24kbps is good for speech
+          });
+        }
       }
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: this.options.audioConstraints ?? {
@@ -227,10 +254,10 @@ var AudioRecorder = class {
               while (this.buffer.length >= this.options.bufferSize) {
                 const chunk = this.buffer.slice(0, this.options.bufferSize);
                 this.buffer = this.buffer.slice(this.options.bufferSize);
-                this.emitData(chunk);
+                this.processData(chunk);
               }
             } else {
-              this.emitData(int16Data);
+              this.processData(int16Data);
             }
             if (this.vadAdapter) {
               const float32Data = new Float32Array(int16Data.length);
@@ -260,12 +287,34 @@ var AudioRecorder = class {
       throw error;
     }
   }
-  emitData(data) {
+  processData(data) {
+    if (this.options.encoder === "opus" && this.audioEncoder) {
+      const float32Data = new Float32Array(data.length);
+      for (let i = 0; i < data.length; i++) {
+        float32Data[i] = data[i] / 32768;
+      }
+      const audioData = new window.AudioData({
+        format: "f32",
+        sampleRate: this.options.sampleRate || 16e3,
+        numberOfFrames: data.length,
+        numberOfChannels: 1,
+        timestamp: Date.now() * 1e3,
+        // microseconds
+        data: float32Data
+      });
+      this.audioEncoder.encode(audioData);
+      audioData.close();
+    } else {
+      this.emitData(data, "pcm");
+    }
+  }
+  emitData(data, encoding) {
     if (this.options.onDataAvailable) {
       this.options.onDataAvailable({
         data,
         timestamp: Date.now(),
-        sequence: this.sequenceNumber++
+        sequence: this.sequenceNumber++,
+        encoding
       });
     }
   }
@@ -372,6 +421,7 @@ var useAudioRecorder = (options = {}) => {
       vadThreshold: options.vadThreshold,
       vadModelUrl: options.vadModelUrl,
       bufferSize: options.bufferSize,
+      encoder: options.encoder,
       onDataAvailable: (payload) => {
         chunksRef.current.push(payload.data);
         if (onData) onData(payload);
@@ -406,10 +456,15 @@ var useAudioRecorder = (options = {}) => {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
-      const blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
+      let blob;
+      if (options.encoder === "opus") {
+        blob = new Blob(chunksRef.current, { type: "audio/ogg" });
+      } else {
+        blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
+      }
       setRecordingBlob(blob);
     }
-  }, [options.sampleRate]);
+  }, [options.sampleRate, options.encoder]);
   const pause = useCallback(() => {
     if (recorderRef.current && isRecording && !isPaused) {
       recorderRef.current.pause();
@@ -661,7 +716,65 @@ var useAudioVisualizer = (getVisualizerData) => {
   }, [getVisualizerData]);
   return data;
 };
+var useAudioSocket = (url, options = {}) => {
+  const [state, setState] = useState("closed");
+  const socketRef = useRef(null);
+  const connect = useCallback(() => {
+    if (socketRef.current) return;
+    try {
+      setState("connecting");
+      const socket = new WebSocket(url);
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        setState("open");
+        if (options.onOpen) options.onOpen();
+      };
+      socket.onclose = () => {
+        setState("closed");
+        socketRef.current = null;
+        if (options.onClose) options.onClose();
+      };
+      socket.onerror = (error) => {
+        setState("error");
+        if (options.onError) options.onError(error);
+      };
+      socket.onmessage = (event) => {
+        if (options.onMessage) options.onMessage(event);
+      };
+      socketRef.current = socket;
+    } catch (e) {
+      setState("error");
+      console.error("WebSocket connection failed", e);
+    }
+  }, [url, options]);
+  const disconnect = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+      setState("closed");
+    }
+  }, []);
+  const send = useCallback((data) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(data);
+    }
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+    };
+  }, []);
+  return {
+    connect,
+    disconnect,
+    send,
+    state,
+    socket: socketRef.current
+  };
+};
 
-export { AudioPlayer, AudioRecorder, BaseTransportAdapter, SileroVADAdapter, useAudioRecorder, useAudioVisualizer, useLiveAudio };
+export { AudioPlayer, AudioRecorder, BaseTransportAdapter, SileroVADAdapter, useAudioRecorder, useAudioSocket, useAudioVisualizer, useLiveAudio };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

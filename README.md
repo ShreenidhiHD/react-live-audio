@@ -101,6 +101,7 @@ const Visualizer = () => {
 | `vadThreshold` | `number` | `0.01` | Sensitivity for Voice Activity Detection (0.0 to 1.0). |
 | `vadModelUrl` | `string` | `undefined` | URL to Silero VAD ONNX model for AI-based detection. |
 | `bufferSize` | `number` | `0` | Size of audio chunks in samples. 0 = immediate. |
+| `encoder` | `'pcm' \| 'opus'` | `'pcm'` | Audio encoding format. 'opus' uses WebCodecs. |
 | `audioConstraints` | `MediaTrackConstraints` | `{ echoCancellation: true, ... }` | Constraints passed to `getUserMedia`. |
 
 #### Returns
@@ -143,6 +144,39 @@ useAudioRecorder({
 start((payload) => {
   const { data, timestamp, sequence } = payload;
   console.log(`Chunk #${sequence} at ${timestamp}: ${data.length} samples`);
+});
+```
+
+#### Opus Encoding (WebCodecs)
+
+Use the modern `AudioEncoder` API to output efficient Opus packets instead of raw PCM.
+
+```tsx
+useAudioRecorder({
+  encoder: 'opus', // Output Uint8Array Opus packets
+  sampleRate: 48000 // Opus works best at 48kHz
+});
+```
+
+### `useAudioSocket(url, options)`
+
+A helper hook for WebSocket streaming.
+
+```tsx
+import { useAudioSocket } from 'react-live-audio';
+
+const { connect, disconnect, send, state } = useAudioSocket('wss://your-server.com', {
+  onOpen: () => console.log('Connected'),
+  onMessage: (event) => console.log('Message:', event.data),
+  onError: (error) => console.error('Error:', error),
+  onClose: () => console.log('Closed')
+});
+
+// Usage with recorder
+start((payload) => {
+  if (state === 'open') {
+    send(payload.data);
+  }
 });
 ```
 

@@ -4,9 +4,10 @@ import { WORKLET_CODE } from '../worklet/AudioProcessorString';
 import { SileroVADAdapter } from './VADAdapter';
 
 export interface AudioDataPayload {
-    data: Int16Array;
+    data: Int16Array | Uint8Array;
     timestamp: number;
     sequence: number;
+    encoding: 'pcm' | 'opus';
 }
 
 export interface AudioRecorderOptions {
@@ -17,6 +18,7 @@ export interface AudioRecorderOptions {
     vadThreshold?: number;
     vadModelUrl?: string;
     bufferSize?: number; // Size in samples (e.g., 4096)
+    encoder?: 'pcm' | 'opus';
 }
 
 export class AudioRecorder {
@@ -32,6 +34,9 @@ export class AudioRecorder {
     // Buffering state
     private buffer: Int16Array = new Int16Array(0);
     private sequenceNumber = 0;
+
+    // Encoder state
+    private audioEncoder: any = null; // Type 'AudioEncoder' is not available in all TS envs yet
 
     constructor(options: AudioRecorderOptions) {
         this.options = options;
@@ -49,6 +54,34 @@ export class AudioRecorder {
         try {
             if (this.vadAdapter) {
                 await this.vadAdapter.load();
+            }
+
+            // Initialize Opus Encoder if requested
+            if (this.options.encoder === 'opus') {
+                if (typeof window.AudioEncoder === 'undefined') {
+                    console.error('AudioEncoder is not supported in this browser. Falling back to PCM.');
+                    this.options.encoder = 'pcm';
+                } else {
+                    this.audioEncoder = new (window as any).AudioEncoder({
+                        output: (chunk: any) => {
+                            // chunk is EncodedAudioChunk
+                            const buffer = new Uint8Array(chunk.byteLength);
+                            chunk.copyTo(buffer);
+
+                            this.emitData(buffer, 'opus');
+                        },
+                        error: (e: any) => {
+                            console.error('AudioEncoder error', e);
+                        }
+                    });
+
+                    this.audioEncoder.configure({
+                        codec: 'opus',
+                        sampleRate: this.options.sampleRate || 16000,
+                        numberOfChannels: 1,
+                        bitrate: 24000 // 24kbps is good for speech
+                    });
+                }
             }
 
             this.stream = await navigator.mediaDevices.getUserMedia({
@@ -107,11 +140,11 @@ export class AudioRecorder {
                                 const chunk = this.buffer.slice(0, this.options.bufferSize);
                                 this.buffer = this.buffer.slice(this.options.bufferSize);
 
-                                this.emitData(chunk);
+                                this.processData(chunk);
                             }
                         } else {
                             // No buffering, emit immediately
-                            this.emitData(int16Data);
+                            this.processData(int16Data);
                         }
 
                         // If we have an AI VAD adapter, use it
@@ -151,12 +184,43 @@ export class AudioRecorder {
         }
     }
 
-    private emitData(data: Int16Array) {
+    private processData(data: Int16Array) {
+        if (this.options.encoder === 'opus' && this.audioEncoder) {
+            // Encode to Opus
+            // We need to create an AudioData object
+            // Note: AudioData expects Float32 usually, but let's check support for Int16
+            // Actually AudioData init takes: format, sampleRate, numberOfFrames, numberOfChannels, timestamp, data
+
+            // Convert Int16 to Float32 for AudioData (WebCodecs usually prefers this or specific format)
+            const float32Data = new Float32Array(data.length);
+            for (let i = 0; i < data.length; i++) {
+                float32Data[i] = data[i] / 32768.0;
+            }
+
+            const audioData = new (window as any).AudioData({
+                format: 'f32',
+                sampleRate: this.options.sampleRate || 16000,
+                numberOfFrames: data.length,
+                numberOfChannels: 1,
+                timestamp: Date.now() * 1000, // microseconds
+                data: float32Data
+            });
+
+            this.audioEncoder.encode(audioData);
+            audioData.close();
+        } else {
+            // PCM
+            this.emitData(data, 'pcm');
+        }
+    }
+
+    private emitData(data: Int16Array | Uint8Array, encoding: 'pcm' | 'opus') {
         if (this.options.onDataAvailable) {
             this.options.onDataAvailable({
                 data,
                 timestamp: Date.now(),
-                sequence: this.sequenceNumber++
+                sequence: this.sequenceNumber++,
+                encoding
             });
         }
     }

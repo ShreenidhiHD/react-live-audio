@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAudioRecorder, useAudioVisualizer } from 'react-live-audio';
+import { useAudioRecorder, useAudioVisualizer, useAudioSocket } from 'react-live-audio';
 
 function App() {
     const [echoCancellation, setEchoCancellation] = useState(true);
@@ -7,6 +7,10 @@ function App() {
     const [vadThreshold, setVadThreshold] = useState(0.01);
     const [useAiVad, setUseAiVad] = useState(false);
     const [bufferSize, setBufferSize] = useState(0);
+    const [useOpus, setUseOpus] = useState(false);
+
+    // Example socket usage (mock URL)
+    const { connect, disconnect, send, state: socketState } = useAudioSocket('wss://echo.websocket.org');
 
     const {
         start,
@@ -27,7 +31,8 @@ function App() {
         },
         vadThreshold,
         vadModelUrl: useAiVad ? "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx" : undefined,
-        bufferSize
+        bufferSize,
+        encoder: useOpus ? 'opus' : 'pcm'
     });
 
     const frequencyData = useAudioVisualizer(getVisualizerData);
@@ -35,14 +40,23 @@ function App() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const handleStart = async () => {
+        // Connect socket if not open
+        if (socketState === 'closed') connect();
+
         await start((payload) => {
-            // Payload contains { data, timestamp, sequence }
-            // console.log(`Received chunk #${payload.sequence} at ${payload.timestamp}, size: ${payload.data.length}`);
+            // Payload contains { data, timestamp, sequence, encoding }
+            // console.log(`Chunk #${payload.sequence} (${payload.encoding}): ${payload.data.length} bytes`);
+
+            // Send to socket if open
+            if (socketState === 'open') {
+                send(payload.data);
+            }
         });
     };
 
     const handleStop = () => {
         stop();
+        disconnect();
     };
 
     const handlePause = () => {
@@ -120,6 +134,15 @@ function App() {
                     Use AI VAD (Silero)
                 </label>
                 <label style={{ display: 'block', marginBottom: '10px' }}>
+                    <input
+                        type="checkbox"
+                        checked={useOpus}
+                        onChange={(e) => setUseOpus(e.target.checked)}
+                        disabled={isRecording}
+                    />
+                    Use Opus Encoding (WebCodecs)
+                </label>
+                <label style={{ display: 'block', marginBottom: '10px' }}>
                     VAD Threshold: {vadThreshold}
                     <input
                         type="range"
@@ -145,6 +168,10 @@ function App() {
                         <option value={16000}>16000 (1s)</option>
                     </select>
                 </label>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+                <p>Socket State: {socketState}</p>
             </div>
 
             <div style={{ marginBottom: '20px' }}>

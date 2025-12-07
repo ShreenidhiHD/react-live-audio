@@ -1,7 +1,8 @@
 interface AudioDataPayload {
-    data: Int16Array;
+    data: Int16Array | Uint8Array;
     timestamp: number;
     sequence: number;
+    encoding: 'pcm' | 'opus';
 }
 interface AudioRecorderOptions {
     sampleRate?: number;
@@ -11,6 +12,7 @@ interface AudioRecorderOptions {
     vadThreshold?: number;
     vadModelUrl?: string;
     bufferSize?: number;
+    encoder?: 'pcm' | 'opus';
 }
 declare class AudioRecorder {
     private context;
@@ -23,8 +25,10 @@ declare class AudioRecorder {
     private vadAdapter;
     private buffer;
     private sequenceNumber;
+    private audioEncoder;
     constructor(options: AudioRecorderOptions);
     start(): Promise<void>;
+    private processData;
     private emitData;
     stop(): void;
     pause(): void;
@@ -47,6 +51,7 @@ interface UseAudioRecorderOptions {
     vadThreshold?: number;
     vadModelUrl?: string;
     bufferSize?: number;
+    encoder?: 'pcm' | 'opus';
 }
 declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
     start: (onData?: (payload: AudioDataPayload) => void) => Promise<void>;
@@ -124,4 +129,18 @@ declare class SileroVADAdapter implements VADAdapter {
  */
 declare const useAudioVisualizer: (getVisualizerData: () => Float32Array) => Float32Array<ArrayBufferLike>;
 
-export { AudioPlayer, AudioRecorder, type AudioRecorderOptions, BaseTransportAdapter, type LiveAudioState, SileroVADAdapter, type TransportAdapter, type UseAudioRecorderOptions, type UseLiveAudioOptions, type VADAdapter, useAudioRecorder, useAudioVisualizer, useLiveAudio };
+interface UseAudioSocketOptions {
+    onOpen?: () => void;
+    onClose?: () => void;
+    onError?: (error: Event) => void;
+    onMessage?: (event: MessageEvent) => void;
+}
+declare const useAudioSocket: (url: string, options?: UseAudioSocketOptions) => {
+    connect: () => void;
+    disconnect: () => void;
+    send: (data: any) => void;
+    state: "open" | "closed" | "connecting" | "error";
+    socket: WebSocket | null;
+};
+
+export { AudioPlayer, AudioRecorder, type AudioRecorderOptions, BaseTransportAdapter, type LiveAudioState, SileroVADAdapter, type TransportAdapter, type UseAudioRecorderOptions, type UseAudioSocketOptions, type UseLiveAudioOptions, type VADAdapter, useAudioRecorder, useAudioSocket, useAudioVisualizer, useLiveAudio };

@@ -10,4 +10,5 @@ export { SileroVADAdapter } from './core/VADAdapter';
 export type { VADAdapter } from './core/VADAdapter';
 export type { AudioRecorderOptions } from './core/AudioRecorder';
 export type { UseAudioRecorderOptions } from './react/useAudioRecorder';
-export { useAudioVisualizer } from './react/useAudioVisualizer';
+export * from './react/useAudioVisualizer';
+export * from './react/useAudioSocket';
