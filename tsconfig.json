@@ -23,6 +23,7 @@
         "emitDeclarationOnly": false
     },
     "include": [
-        "src"
+        "src",
+        "tests"
     ]
 }

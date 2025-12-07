@@ -49,10 +49,10 @@ export class AudioRecorder {
         if (this.isRecording) return;
 
         // Feature Detection
-        if (!window.AudioContext && !(window as any).webkitAudioContext) {
+        if (!window.AudioContext && !(window as any).webkitAudioContext && !(window as any).AudioContext) {
             throw new Error('AudioContext is not supported in this browser.');
         }
-        if (!window.AudioWorklet) {
+        if (!window.AudioWorklet && !(window as any).AudioWorklet) {
             throw new Error('AudioWorklet is not supported in this browser. Secure context (HTTPS) required.');
         }
 
