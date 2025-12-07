@@ -38,8 +38,8 @@ const AudioApp = () => {
   });
 
   const handleStart = async () => {
-    await start((data) => {
-      // data is an Int16Array of audio samples
+    await start((payload) => {
+      // payload.data is Int16Array or Uint8Array
       // Send to WebSocket or process here
     });
   };
