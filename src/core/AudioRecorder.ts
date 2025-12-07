@@ -1,12 +1,15 @@
 
 import { WORKLET_CODE } from '../worklet/AudioProcessorString';
 
+import { SileroVADAdapter } from './VADAdapter';
+
 export interface AudioRecorderOptions {
     sampleRate?: number;
     onDataAvailable?: (data: Int16Array) => void;
     onVADChange?: (isSpeaking: boolean) => void;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
+    vadModelUrl?: string;
 }
 
 export class AudioRecorder {
@@ -17,9 +20,13 @@ export class AudioRecorder {
     private isRecording = false;
     private isPaused = false;
     private analyser: AnalyserNode | null = null;
+    private vadAdapter: SileroVADAdapter | null = null;
 
     constructor(options: AudioRecorderOptions) {
         this.options = options;
+        if (options.vadModelUrl) {
+            this.vadAdapter = new SileroVADAdapter(options.vadModelUrl);
+        }
     }
 
     async start() {
@@ -27,6 +34,10 @@ export class AudioRecorder {
         this.isPaused = false;
 
         try {
+            if (this.vadAdapter) {
+                await this.vadAdapter.load();
+            }
+
             this.stream = await navigator.mediaDevices.getUserMedia({
                 audio: this.options.audioConstraints ?? {
                     echoCancellation: true,
@@ -65,19 +76,39 @@ export class AudioRecorder {
             this.analyser.fftSize = 256;
             source.connect(this.analyser);
 
-            this.workletNode.port.onmessage = (event) => {
+            this.workletNode.port.onmessage = async (event) => {
                 const { type, data } = event.data;
 
                 if (type === 'AUDIO_DATA') {
-                    if (!this.isPaused && this.options.onDataAvailable) {
-                        this.options.onDataAvailable(new Int16Array(data));
+                    if (!this.isPaused) {
+                        const int16Data = new Int16Array(data);
+
+                        if (this.options.onDataAvailable) {
+                            this.options.onDataAvailable(int16Data);
+                        }
+
+                        // If we have an AI VAD adapter, use it
+                        if (this.vadAdapter) {
+                            // Convert Int16 to Float32 for VAD
+                            const float32Data = new Float32Array(int16Data.length);
+                            for (let i = 0; i < int16Data.length; i++) {
+                                float32Data[i] = int16Data[i] / 32768.0;
+                            }
+
+                            const isSpeaking = await this.vadAdapter.process(float32Data);
+                            if (this.options.onVADChange) {
+                                this.options.onVADChange(isSpeaking);
+                            }
+                        }
                     }
                 } else if (type === 'VAD_START') {
-                    if (this.options.onVADChange) {
+                    // Only use internal VAD if no external adapter is present
+                    if (!this.vadAdapter && this.options.onVADChange) {
                         this.options.onVADChange(true);
                     }
                 } else if (type === 'VAD_END') {
-                    if (this.options.onVADChange) {
+                    // Only use internal VAD if no external adapter is present
+                    if (!this.vadAdapter && this.options.onVADChange) {
                         this.options.onVADChange(false);
                     }
                 }

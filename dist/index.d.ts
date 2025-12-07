@@ -2,6 +2,7 @@ interface UseAudioRecorderOptions {
     sampleRate?: number;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
+    vadModelUrl?: string;
 }
 declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
     start: (onData?: (data: Int16Array) => void) => Promise<void>;
@@ -50,6 +51,7 @@ interface AudioRecorderOptions {
     onVADChange?: (isSpeaking: boolean) => void;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
+    vadModelUrl?: string;
 }
 declare class AudioRecorder {
     private context;
@@ -59,6 +61,7 @@ declare class AudioRecorder {
     private isRecording;
     private isPaused;
     private analyser;
+    private vadAdapter;
     constructor(options: AudioRecorderOptions);
     start(): Promise<void>;
     stop(): void;

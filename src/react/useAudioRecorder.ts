@@ -6,6 +6,7 @@ export interface UseAudioRecorderOptions {
     sampleRate?: number;
     audioConstraints?: MediaTrackConstraints;
     vadThreshold?: number;
+    vadModelUrl?: string;
 }
 
 export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
@@ -34,6 +35,7 @@ export const useAudioRecorder = (options: UseAudioRecorderOptions = {}) => {
             sampleRate: options.sampleRate,
             audioConstraints: options.audioConstraints,
             vadThreshold: options.vadThreshold,
+            vadModelUrl: options.vadModelUrl,
             onDataAvailable: (data) => {
                 chunksRef.current.push(data);
                 if (onData) onData(data);

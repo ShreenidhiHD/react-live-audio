@@ -5,6 +5,7 @@ function App() {
     const [echoCancellation, setEchoCancellation] = useState(true);
     const [noiseSuppression, setNoiseSuppression] = useState(true);
     const [vadThreshold, setVadThreshold] = useState(0.01);
+    const [useAiVad, setUseAiVad] = useState(false);
 
     const {
         start,
@@ -23,7 +24,8 @@ function App() {
             echoCancellation,
             noiseSuppression
         },
-        vadThreshold
+        vadThreshold,
+        vadModelUrl: useAiVad ? "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx" : undefined
     });
 
     const frequencyData = useAudioVisualizer(getVisualizerData);
@@ -102,6 +104,15 @@ function App() {
                         disabled={isRecording}
                     />
                     Noise Suppression
+                </label>
+                <label style={{ display: 'block', marginBottom: '10px' }}>
+                    <input
+                        type="checkbox"
+                        checked={useAiVad}
+                        onChange={(e) => setUseAiVad(e.target.checked)}
+                        disabled={isRecording}
+                    />
+                    Use AI VAD (Silero)
                 </label>
                 <label style={{ display: 'block' }}>
                     VAD Threshold: {vadThreshold}

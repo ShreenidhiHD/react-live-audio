@@ -115,6 +115,54 @@ class AudioProcessor extends AudioWorkletProcessor {
 
 registerProcessor('audio-processor', AudioProcessor);
 `;
+var SileroVADAdapter = class {
+  constructor(modelUrl) {
+    this.modelUrl = modelUrl;
+    __publicField(this, "loaded", false);
+    __publicField(this, "session", null);
+    __publicField(this, "h", null);
+    __publicField(this, "c", null);
+    __publicField(this, "sr");
+    this.sr = new ort.Tensor("int64", new BigInt64Array([16000n]));
+  }
+  async load() {
+    if (this.loaded) return;
+    try {
+      this.session = await ort.InferenceSession.create(this.modelUrl);
+      this.reset();
+      this.loaded = true;
+    } catch (e) {
+      console.error("Failed to load VAD model", e);
+    }
+  }
+  async process(audioFrame) {
+    if (!this.loaded || !this.session || !this.h || !this.c) {
+      let sum = 0;
+      for (let i = 0; i < audioFrame.length; i++) {
+        sum += audioFrame[i] * audioFrame[i];
+      }
+      return Math.sqrt(sum / audioFrame.length) > 0.02;
+    }
+    const input = new ort.Tensor("float32", audioFrame, [1, audioFrame.length]);
+    const feeds = {
+      input,
+      sr: this.sr,
+      h: this.h,
+      c: this.c
+    };
+    const results = await this.session.run(feeds);
+    this.h = results.hn;
+    this.c = results.cn;
+    const output = results.output;
+    const probability = output.data[0];
+    return probability > 0.5;
+  }
+  reset() {
+    const zeros = new Float32Array(2 * 1 * 64).fill(0);
+    this.h = new ort.Tensor("float32", zeros, [2, 1, 64]);
+    this.c = new ort.Tensor("float32", zeros, [2, 1, 64]);
+  }
+};
 
 // src/core/AudioRecorder.ts
 var AudioRecorder = class {
@@ -126,12 +174,19 @@ var AudioRecorder = class {
     __publicField(this, "isRecording", false);
     __publicField(this, "isPaused", false);
     __publicField(this, "analyser", null);
+    __publicField(this, "vadAdapter", null);
     this.options = options;
+    if (options.vadModelUrl) {
+      this.vadAdapter = new SileroVADAdapter(options.vadModelUrl);
+    }
   }
   async start() {
     if (this.isRecording) return;
     this.isPaused = false;
     try {
+      if (this.vadAdapter) {
+        await this.vadAdapter.load();
+      }
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: this.options.audioConstraints ?? {
           echoCancellation: true,
@@ -154,18 +209,31 @@ var AudioRecorder = class {
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 256;
       source.connect(this.analyser);
-      this.workletNode.port.onmessage = (event) => {
+      this.workletNode.port.onmessage = async (event) => {
         const { type, data } = event.data;
         if (type === "AUDIO_DATA") {
-          if (!this.isPaused && this.options.onDataAvailable) {
-            this.options.onDataAvailable(new Int16Array(data));
+          if (!this.isPaused) {
+            const int16Data = new Int16Array(data);
+            if (this.options.onDataAvailable) {
+              this.options.onDataAvailable(int16Data);
+            }
+            if (this.vadAdapter) {
+              const float32Data = new Float32Array(int16Data.length);
+              for (let i = 0; i < int16Data.length; i++) {
+                float32Data[i] = int16Data[i] / 32768;
+              }
+              const isSpeaking = await this.vadAdapter.process(float32Data);
+              if (this.options.onVADChange) {
+                this.options.onVADChange(isSpeaking);
+              }
+            }
           }
         } else if (type === "VAD_START") {
-          if (this.options.onVADChange) {
+          if (!this.vadAdapter && this.options.onVADChange) {
             this.options.onVADChange(true);
           }
         } else if (type === "VAD_END") {
-          if (this.options.onVADChange) {
+          if (!this.vadAdapter && this.options.onVADChange) {
             this.options.onVADChange(false);
           }
         }
@@ -278,6 +346,7 @@ var useAudioRecorder = (options = {}) => {
       sampleRate: options.sampleRate,
       audioConstraints: options.audioConstraints,
       vadThreshold: options.vadThreshold,
+      vadModelUrl: options.vadModelUrl,
       onDataAvailable: (data) => {
         chunksRef.current.push(data);
         if (onData) onData(data);
@@ -547,54 +616,6 @@ var BaseTransportAdapter = class {
         await new Promise((r) => setTimeout(r, delay));
       }
     }
-  }
-};
-var SileroVADAdapter = class {
-  constructor(modelUrl) {
-    this.modelUrl = modelUrl;
-    __publicField(this, "loaded", false);
-    __publicField(this, "session", null);
-    __publicField(this, "h", null);
-    __publicField(this, "c", null);
-    __publicField(this, "sr");
-    this.sr = new ort.Tensor("int64", new BigInt64Array([16000n]));
-  }
-  async load() {
-    if (this.loaded) return;
-    try {
-      this.session = await ort.InferenceSession.create(this.modelUrl);
-      this.reset();
-      this.loaded = true;
-    } catch (e) {
-      console.error("Failed to load VAD model", e);
-    }
-  }
-  async process(audioFrame) {
-    if (!this.loaded || !this.session || !this.h || !this.c) {
-      let sum = 0;
-      for (let i = 0; i < audioFrame.length; i++) {
-        sum += audioFrame[i] * audioFrame[i];
-      }
-      return Math.sqrt(sum / audioFrame.length) > 0.02;
-    }
-    const input = new ort.Tensor("float32", audioFrame, [1, audioFrame.length]);
-    const feeds = {
-      input,
-      sr: this.sr,
-      h: this.h,
-      c: this.c
-    };
-    const results = await this.session.run(feeds);
-    this.h = results.hn;
-    this.c = results.cn;
-    const output = results.output;
-    const probability = output.data[0];
-    return probability > 0.5;
-  }
-  reset() {
-    const zeros = new Float32Array(2 * 1 * 64).fill(0);
-    this.h = new ort.Tensor("float32", zeros, [2, 1, 64]);
-    this.c = new ort.Tensor("float32", zeros, [2, 1, 64]);
   }
 };
 var useAudioVisualizer = (getVisualizerData) => {
