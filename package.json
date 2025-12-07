@@ -1,7 +1,7 @@
 {
   "name": "react-live-audio",
-  "version": "0.0.1",
-  "description": "A robust React hook for real-time audio streaming with AudioWorklet, VAD, and Resampling.",
+  "version": "0.1.0",
+  "description": "Real-Time Audio Engine for React (Streaming + VAD + PCM/Opus)",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

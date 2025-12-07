@@ -13,11 +13,13 @@ interface AudioRecorderOptions {
     vadModelUrl?: string;
     bufferSize?: number;
     encoder?: 'pcm' | 'opus';
+    keepBlob?: boolean;
 }
 declare class AudioRecorder {
     private context;
     private workletNode;
     private stream;
+    private source;
     private options;
     private isRecording;
     private isPaused;
@@ -52,8 +54,9 @@ interface UseAudioRecorderOptions {
     vadModelUrl?: string;
     bufferSize?: number;
     encoder?: 'pcm' | 'opus';
+    keepBlob?: boolean;
 }
-declare const useAudioRecorder: (options?: UseAudioRecorderOptions) => {
+declare function useAudioRecorder(options?: UseAudioRecorderOptions): {
     start: (onData?: (payload: AudioDataPayload) => void) => Promise<void>;
     stop: () => void;
     pause: () => void;

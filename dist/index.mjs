@@ -171,6 +171,7 @@ var AudioRecorder = class {
     __publicField(this, "context", null);
     __publicField(this, "workletNode", null);
     __publicField(this, "stream", null);
+    __publicField(this, "source", null);
     __publicField(this, "options");
     __publicField(this, "isRecording", false);
     __publicField(this, "isPaused", false);
@@ -188,10 +189,10 @@ var AudioRecorder = class {
   }
   async start() {
     if (this.isRecording) return;
-    if (!window.AudioContext && !window.webkitAudioContext) {
+    if (!window.AudioContext && !window.webkitAudioContext && !window.AudioContext) {
       throw new Error("AudioContext is not supported in this browser.");
     }
-    if (!window.AudioWorklet) {
+    if (!window.AudioWorklet && !window.AudioWorklet) {
       throw new Error("AudioWorklet is not supported in this browser. Secure context (HTTPS) required.");
     }
     this.isPaused = false;
@@ -237,7 +238,7 @@ var AudioRecorder = class {
       await this.context.resume();
       const workletUrl = this.getWorkletUrl();
       await this.context.audioWorklet.addModule(workletUrl);
-      const source = this.context.createMediaStreamSource(this.stream);
+      this.source = this.context.createMediaStreamSource(this.stream);
       this.workletNode = new AudioWorkletNode(this.context, "audio-processor");
       if (this.options.vadThreshold !== void 0) {
         this.workletNode.port.postMessage({
@@ -245,9 +246,6 @@ var AudioRecorder = class {
           vadThreshold: this.options.vadThreshold
         });
       }
-      this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = 256;
-      source.connect(this.analyser);
       this.workletNode.port.onmessage = async (event) => {
         const { type, data } = event.data;
         if (type === "AUDIO_DATA") {
@@ -287,7 +285,7 @@ var AudioRecorder = class {
           }
         }
       };
-      source.connect(this.workletNode);
+      this.source.connect(this.workletNode);
       this.isRecording = true;
     } catch (error) {
       console.error("Failed to start recording:", error);
@@ -335,6 +333,10 @@ var AudioRecorder = class {
       this.workletNode.disconnect();
       this.workletNode = null;
     }
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser = null;
+    }
     if (this.context) {
       this.context.close();
       this.context = null;
@@ -364,7 +366,18 @@ var AudioRecorder = class {
     return URL.createObjectURL(blob);
   }
   getFrequencies() {
-    if (!this.analyser) return new Float32Array(0);
+    if (!this.context) return new Float32Array(0);
+    if (!this.analyser) {
+      try {
+        if (!this.source) return new Float32Array(0);
+        this.analyser = this.context.createAnalyser();
+        this.analyser.fftSize = 256;
+        this.source.connect(this.analyser);
+      } catch (e) {
+        console.error("Failed to create analyser", e);
+        return new Float32Array(0);
+      }
+    }
     const data = new Float32Array(this.analyser.frequencyBinCount);
     this.analyser.getFloatFrequencyData(data);
     return data;
@@ -409,23 +422,24 @@ var AudioRecorder = class {
 };
 
 // src/react/useAudioRecorder.ts
-var useAudioRecorder = (options = {}) => {
+function useAudioRecorder(options = {}) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
-  const recorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const recorderRef = useRef(null);
+  const timerRef = useRef(null);
   const startTimeRef = useRef(0);
   const pausedTimeRef = useRef(0);
-  const timerRef = useRef(null);
   const start = useCallback(async (onData) => {
     if (recorderRef.current) return;
     chunksRef.current = [];
     setRecordingBlob(null);
     setRecordingTime(0);
     pausedTimeRef.current = 0;
+    const shouldKeepBlob = options.keepBlob ?? options.encoder !== "opus";
     const recorder = new AudioRecorder({
       sampleRate: options.sampleRate,
       audioConstraints: options.audioConstraints,
@@ -433,8 +447,11 @@ var useAudioRecorder = (options = {}) => {
       vadModelUrl: options.vadModelUrl,
       bufferSize: options.bufferSize,
       encoder: options.encoder,
+      keepBlob: shouldKeepBlob,
       onDataAvailable: (payload) => {
-        chunksRef.current.push(payload.data);
+        if (shouldKeepBlob) {
+          chunksRef.current.push(payload.data);
+        }
         if (onData) onData(payload);
       },
       onVADChange: (speaking) => {
@@ -460,22 +477,26 @@ var useAudioRecorder = (options = {}) => {
     if (recorderRef.current) {
       recorderRef.current.stop();
       recorderRef.current = null;
-      setIsRecording(false);
-      setIsPaused(false);
-      setIsSpeaking(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      let blob;
-      if (options.encoder === "opus") {
-        blob = new Blob(chunksRef.current, { type: "audio/ogg" });
-      } else {
-        blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
-      }
-      setRecordingBlob(blob);
     }
-  }, [options.sampleRate, options.encoder]);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setIsRecording(false);
+    setIsPaused(false);
+    setIsSpeaking(false);
+    if (chunksRef.current.length > 0) {
+      if (options.encoder === "opus") {
+        const blob = new Blob(chunksRef.current, { type: "audio/opus" });
+        setRecordingBlob(blob);
+      } else {
+        const blob = AudioRecorder.exportWAV(chunksRef.current, options.sampleRate);
+        setRecordingBlob(blob);
+      }
+    } else {
+      setRecordingBlob(null);
+    }
+  }, [options.encoder, options.sampleRate]);
   const pause = useCallback(() => {
     if (recorderRef.current && isRecording && !isPaused) {
       recorderRef.current.pause();
@@ -526,7 +547,7 @@ var useAudioRecorder = (options = {}) => {
     recordingTime,
     getVisualizerData
   };
-};
+}
 
 // src/core/AudioPlayer.ts
 var AudioPlayer = class {

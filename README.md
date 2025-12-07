@@ -124,54 +124,47 @@ const Visualizer = () => {
 #### Returns
 
 | Property | Type | Description |
-|----------|------|-------------|
-| `start` | `(onData?) => Promise<void>` | Starts recording. Optional callback receives `Int16Array` chunks. |
-| `stop` | `() => void` | Stops recording and finalizes the blob. |
-| `pause` | `() => void` | Pauses the recording. |
-| `resume` | `() => void` | Resumes the recording. |
+| :--- | :--- | :--- |
+| `start(onData?)` | `fn` | Start recording. Optional callback for real-time data. |
+| `stop()` | `fn` | Stop recording and finalize Blob (if `keepBlob` is true). |
+| `pause() / resume()` | `fn` | Pause/Resume recording. |
 | `isRecording` | `boolean` | Current recording state. |
-| `isPaused` | `boolean` | Current paused state. |
-| `isSpeaking` | `boolean` | Current VAD state. |
-| `recordingBlob` | `Blob \| null` | The recorded audio. WAV (PCM) or raw Opus packets (if encoder='opus'). |
-| `recordingTime` | `number` | Duration of the current recording in seconds. |
-| `getVisualizerData` | `() => Float32Array` | Function to get current frequency data. |
+| `isSpeaking` | `boolean` | VAD status (true when user is talking). |
+| `recordingBlob` | `Blob` | Final recording (WAV for PCM, Raw packets for Opus). |
+| `recordingTime` | `number` | Duration of current recording in ms. |
+| `getVisualizerData` | `fn` | Returns `Float32Array` of frequency data for visualization. |
 
-### Advanced Usage
+## 🌐 Browser Support & Fallbacks
 
-#### AI-Powered VAD (Silero)
+This library uses advanced browser APIs.
 
-To use the AI-based VAD instead of the default energy-based one, provide a URL to the Silero ONNX model.
+| Feature | Chrome / Edge | Firefox | Safari (iOS) | Fallback Behavior |
+| :--- | :--- | :--- | :--- | :--- |
+| **AudioWorklet** | ✅ Supported | ✅ Supported | ✅ Supported | Throws Error (Secure Context required) |
+| **WebCodecs (Opus)** | ✅ Supported | ⚠️ Partial | ❌ Not Supported | **Auto-falls back to PCM** |
+| **Silero VAD** | ✅ Supported | ✅ Supported | ✅ Supported | **Falls back to Energy VAD** |
 
-```tsx
-useAudioRecorder({
-  vadModelUrl: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/silero_vad.onnx"
-});
-```
+> **Note on Opus**: If `encoder: 'opus'` is used on a browser without WebCodecs (like iOS Safari), the library will automatically fall back to `pcm` encoding and log a warning. The `onDataAvailable` payload will indicate `encoding: 'pcm'`.
 
-#### Buffer Control & Metadata
+## 🧠 AI Integration
 
-Control the size of the audio chunks and receive metadata (timestamp, sequence number).
+### Streaming to OpenAI / Gemini
+Use `encoder: 'pcm'` and `sampleRate: 24000` (Gemini) or `16000` (OpenAI).
 
-```tsx
-useAudioRecorder({
-  bufferSize: 4096, // e.g., 4096 samples per chunk
-});
-
-// The start callback now receives a payload object
+```typescript
 start((payload) => {
-  const { data, timestamp, sequence } = payload;
-  console.log(`Chunk #${sequence} at ${timestamp}: ${data.length} samples`);
+  // payload.data is Int16Array (PCM)
+  // Convert to Base64 and send via WebSocket
 });
 ```
 
-#### Opus Encoding (WebCodecs)
+### Using Silero VAD
+Download the ONNX model and serve it from your public folder.
 
-Use the modern `AudioEncoder` API to output efficient Opus packets instead of raw PCM.
-
-```tsx
+```typescript
 useAudioRecorder({
-  encoder: 'opus', // Output Uint8Array Opus packets
-  sampleRate: 48000 // Opus works best at 48kHz
+  vadModelUrl: '/silero_vad.onnx', // Path to your model
+  onVADChange: (isSpeaking) => console.log('User is:', isSpeaking ? '🗣️' : '🤫')
 });
 ```
 
