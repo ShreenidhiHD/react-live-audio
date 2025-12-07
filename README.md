@@ -12,6 +12,7 @@ A robust React hook for real-time audio streaming with AudioWorklet, Voice Activ
 - 🎛️ **Advanced Config**: Control echo cancellation, noise suppression, and VAD threshold.
 - ⚛️ **React Hook**: Easy-to-use `useAudioRecorder` and `useAudioVisualizer` hooks.
 - 📦 **Lightweight**: Minimal dependencies.
+- 🌐 **Browser Support**: Works in modern browsers (Chrome, Edge, Firefox, Safari). Opus encoding requires Chrome/Edge/Safari 16.4+.
 
 ## Installation
 
@@ -115,7 +116,7 @@ const Visualizer = () => {
 | `isRecording` | `boolean` | Current recording state. |
 | `isPaused` | `boolean` | Current paused state. |
 | `isSpeaking` | `boolean` | Current VAD state. |
-| `recordingBlob` | `Blob \| null` | The recorded audio as a WAV blob (available after stop). |
+| `recordingBlob` | `Blob \| null` | The recorded audio. WAV (PCM) or raw Opus packets (if encoder='opus'). |
 | `recordingTime` | `number` | Duration of the current recording in seconds. |
 | `getVisualizerData` | `() => Float32Array` | Function to get current frequency data. |
 

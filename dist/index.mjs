@@ -188,6 +188,12 @@ var AudioRecorder = class {
   }
   async start() {
     if (this.isRecording) return;
+    if (!window.AudioContext && !window.webkitAudioContext) {
+      throw new Error("AudioContext is not supported in this browser.");
+    }
+    if (!window.AudioWorklet) {
+      throw new Error("AudioWorklet is not supported in this browser. Secure context (HTTPS) required.");
+    }
     this.isPaused = false;
     this.buffer = new Int16Array(0);
     this.sequenceNumber = 0;
@@ -197,7 +203,7 @@ var AudioRecorder = class {
       }
       if (this.options.encoder === "opus") {
         if (typeof window.AudioEncoder === "undefined") {
-          console.error("AudioEncoder is not supported in this browser. Falling back to PCM.");
+          console.warn("AudioEncoder (WebCodecs) is not supported. Falling back to PCM.");
           this.options.encoder = "pcm";
         } else {
           this.audioEncoder = new window.AudioEncoder({
@@ -226,7 +232,8 @@ var AudioRecorder = class {
           autoGainControl: true
         }
       });
-      this.context = new AudioContext();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      this.context = new AudioContextClass();
       await this.context.resume();
       const workletUrl = this.getWorkletUrl();
       await this.context.audioWorklet.addModule(workletUrl);
@@ -331,6 +338,10 @@ var AudioRecorder = class {
     if (this.context) {
       this.context.close();
       this.context = null;
+    }
+    if (this.audioEncoder) {
+      this.audioEncoder.close();
+      this.audioEncoder = null;
     }
     this.isRecording = false;
     this.isPaused = false;

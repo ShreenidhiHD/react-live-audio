@@ -47,6 +47,15 @@ export class AudioRecorder {
 
     async start() {
         if (this.isRecording) return;
+
+        // Feature Detection
+        if (!window.AudioContext && !(window as any).webkitAudioContext) {
+            throw new Error('AudioContext is not supported in this browser.');
+        }
+        if (!window.AudioWorklet) {
+            throw new Error('AudioWorklet is not supported in this browser. Secure context (HTTPS) required.');
+        }
+
         this.isPaused = false;
         this.buffer = new Int16Array(0);
         this.sequenceNumber = 0;
@@ -58,8 +67,8 @@ export class AudioRecorder {
 
             // Initialize Opus Encoder if requested
             if (this.options.encoder === 'opus') {
-                if (typeof window.AudioEncoder === 'undefined') {
-                    console.error('AudioEncoder is not supported in this browser. Falling back to PCM.');
+                if (typeof (window as any).AudioEncoder === 'undefined') {
+                    console.warn('AudioEncoder (WebCodecs) is not supported. Falling back to PCM.');
                     this.options.encoder = 'pcm';
                 } else {
                     this.audioEncoder = new (window as any).AudioEncoder({
@@ -95,7 +104,8 @@ export class AudioRecorder {
             // Create AudioContext with desired sample rate if supported, otherwise default
             // Note: We resample in the worklet, so we can let the context run at native rate (usually 44.1 or 48k)
             // to avoid hardware resampling issues.
-            this.context = new AudioContext();
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            this.context = new AudioContextClass();
 
             await this.context.resume();
 
@@ -241,6 +251,11 @@ export class AudioRecorder {
         if (this.context) {
             this.context.close();
             this.context = null;
+        }
+
+        if (this.audioEncoder) {
+            this.audioEncoder.close();
+            this.audioEncoder = null;
         }
 
         this.isRecording = false;
